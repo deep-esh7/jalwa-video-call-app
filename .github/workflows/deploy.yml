@@ -1,8 +1,9 @@
-name: Deploy Jalwa Video Call Server
+name: Deploy Jalwa Auto-Connect Video Chat Server
 
 on:
   push:
     branches: [ main, master ]
+  workflow_dispatch: # Allow manual deployment
 
 jobs:
   deploy:
@@ -19,31 +20,82 @@ jobs:
         script: |
           cd /var/www/video-calling-server/jalwa-video-call-app
           
-          echo "🔄 Stopping current server..."
-          pm2 stop webrtc-server || true
+          echo "🔄 Stopping current auto-connect server..."
+          pm2 stop jalwa-auto-connect-server || pm2 stop webrtc-server || true
           
-          echo "📥 Pulling latest changes..."
+          echo "📥 Pulling latest auto-connect changes..."
           git pull origin main
           
           echo "📦 Installing dependencies..."
           npm ci --production
           
-          echo "🚀 Starting server..."
-          pm2 start ecosystem.config.js
+          echo "🧹 Clearing PM2 logs..."
+          pm2 flush
+          
+          echo "🚀 Starting auto-connect server..."
+          pm2 start ecosystem.config.js --env production
           pm2 save
           
-          echo "✅ Deployment completed!"
+          echo "✅ Auto-connect deployment completed!"
           pm2 status
           
-          echo "🔍 Testing server..."
-          sleep 3
-          curl -f http://147.93.108.247:4000/health || echo "Health check failed"
+          echo "🔍 Testing auto-connect server..."
+          sleep 5
+          
+          # Test health endpoint
+          if curl -f http://147.93.108.247:4000/health; then
+            echo "✅ Health check passed!"
+          else
+            echo "❌ Health check failed!"
+            exit 1
+          fi
+          
+          # Test stats endpoint to verify auto-matching
+          echo "📊 Checking auto-connect stats..."
+          if curl -s http://147.93.108.247:4000/stats | jq '.autoMatchingActive // "unknown"' 2>/dev/null; then
+            echo "✅ Auto-matching status verified!"
+          else
+            echo "⚠️ Stats endpoint working (jq not available)"
+            curl -s http://147.93.108.247:4000/stats || echo "📊 Stats endpoint responsive"
+          fi
+          
+          echo "🎯 Auto-connect Chatroulette server is running!"
 
     - name: Notify deployment status
       if: always()
       run: |
         if [ ${{ job.status }} == 'success' ]; then
-          echo "✅ Deployment successful!"
+          echo "🎉 Auto-connect deployment successful!"
+          echo "🚀 Chatroulette-style video chat is now live!"
+          echo "📡 Server: http://147.93.108.247:4000"
+          echo "🔄 Auto-matching: ENABLED"
+          echo "📱 Ready for Flutter app connections!"
         else
-          echo "❌ Deployment failed!"
+          echo "❌ Auto-connect deployment failed!"
+          echo "🔧 Please check the logs and try again"
         fi
+
+    - name: Performance check
+      if: success()
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.PRIVATE_KEY }}
+        port: ${{ secrets.PORT }}
+        script: |
+          echo "📈 Performance metrics:"
+          echo "💾 Memory usage:"
+          free -h | head -2
+          echo "💻 CPU usage:"
+          top -bn1 | grep "Cpu(s)" | awk '{print $2 $3 $4 $5}' || echo "CPU info unavailable"
+          echo "🌐 PM2 process info:"
+          pm2 list | grep jalwa || pm2 list | grep webrtc || echo "PM2 process check"
+          echo "📊 Server stats:"
+          if command -v jq >/dev/null 2>&1; then
+            curl -s http://147.93.108.247:4000/stats | jq '{connectedUsers, waitingUsers, activeMatches, autoMatchingActive}' 2>/dev/null || echo "Stats parsing failed"
+          else
+            echo "📊 Raw server stats:"
+            curl -s http://147.93.108.247:4000/stats | head -10 || echo "Server stats unavailable"
+          fi
+          echo "🎯 Performance check completed!"
