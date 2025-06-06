@@ -23,6 +23,7 @@ app.use(express.json());
 const connectedUsers = new Map();
 const availableUsers = new Map(); // Users available for matching
 const activeMatches = new Map(); // Active video calls
+const pendingConnections = new Map(); // Users trying to connect
 
 // ENHANCED STUN/TURN configuration with FREE TURN servers
 const iceServers = [
@@ -44,17 +45,6 @@ const iceServers = [
   },
   {
     urls: 'turn:relay.metered.ca:443?transport=tcp',
-    username: 'openrelayproject',
-    credential: 'openrelayproject'
-  },
-  // Additional free TURN servers for better reliability
-  {
-    urls: 'turn:openrelay.metered.ca:80',
-    username: 'openrelayproject',
-    credential: 'openrelayproject'
-  },
-  {
-    urls: 'turn:openrelay.metered.ca:443',
     username: 'openrelayproject',
     credential: 'openrelayproject'
   }
@@ -84,6 +74,14 @@ const generateRandomProfile = () => {
   };
 };
 
+// Find available user for instant connection
+const findAvailableUser = (excludeSocketId) => {
+  const available = Array.from(availableUsers.values())
+    .filter(user => user.socketId !== excludeSocketId && !pendingConnections.has(user.socketId));
+  
+  return available.length > 0 ? available[0] : null;
+};
+
 // Socket connection handling
 io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
@@ -104,58 +102,45 @@ io.on('connection', (socket) => {
     console.log(`Total connected users: ${connectedUsers.size}`);
   });
 
-  // Get potential matches
+  // Get available users (exclude current user and those in calls)
   socket.on('get-matches', () => {
     const currentUser = connectedUsers.get(socket.id);
     if (!currentUser) return;
 
-    const potentialMatches = Array.from(availableUsers.values())
-      .filter(user => user.socketId !== socket.id)
-      .slice(0, 10); // Limit to 10 matches at a time
+    const availableMatches = Array.from(availableUsers.values())
+      .filter(user => user.socketId !== socket.id && !pendingConnections.has(user.socketId))
+      .slice(0, 20); // Get more users for better experience
 
-    socket.emit('potential-matches', potentialMatches);
-    console.log(`Sent ${potentialMatches.length} potential matches to ${currentUser.name}`);
+    socket.emit('potential-matches', availableMatches);
+    console.log(`Sent ${availableMatches.length} available users to ${currentUser.name}`);
   });
 
-  // Swipe right (like)
-  socket.on('swipe-right', (targetUserId) => {
-    const currentUser = connectedUsers.get(socket.id);
-    const targetUser = Array.from(connectedUsers.values())
-      .find(user => user.id === targetUserId);
-
-    if (!currentUser || !targetUser) {
-      console.log('Invalid swipe: user not found');
-      return;
-    }
-
-    console.log(`${currentUser.name} liked ${targetUser.name}`);
-
-    // Notify target user of the match
-    io.to(targetUser.socketId).emit('match-found', {
-      user: currentUser,
-      message: `${currentUser.name} liked you! Start a video call?`
-    });
-
-    socket.emit('match-sent', {
-      user: targetUser,
-      message: `You liked ${targetUser.name}. Waiting for response...`
-    });
-  });
-
-  // Accept match and start call
+  // Instant connect - accept match (simplified, no swipe-right needed)
   socket.on('accept-match', (targetUserId) => {
     const currentUser = connectedUsers.get(socket.id);
     const targetUser = Array.from(connectedUsers.values())
       .find(user => user.id === targetUserId);
 
     if (!currentUser || !targetUser) {
-      console.log('Invalid match acceptance: user not found');
+      console.log('Invalid connection attempt: user not found');
+      socket.emit('match-sent', { message: 'User not available' });
       return;
     }
 
-    const roomId = `room_${Date.now()}`;
+    // Check if target user is still available
+    if (!availableUsers.has(targetUser.socketId) || pendingConnections.has(targetUser.socketId)) {
+      console.log(`${targetUser.name} is no longer available`);
+      socket.emit('match-sent', { message: 'User is no longer available' });
+      return;
+    }
+
+    const roomId = `room_${Date.now()}_${socket.id}`;
     
-    console.log(`Starting video call between ${currentUser.name} and ${targetUser.name} in room ${roomId}`);
+    console.log(`Creating instant connection between ${currentUser.name} and ${targetUser.name} in room ${roomId}`);
+    
+    // Mark both users as pending connection
+    pendingConnections.set(socket.id, { targetSocketId: targetUser.socketId, roomId });
+    pendingConnections.set(targetUser.socketId, { targetSocketId: socket.id, roomId });
     
     // Join both users to the same room
     socket.join(roomId);
@@ -172,13 +157,40 @@ io.on('connection', (socket) => {
     availableUsers.delete(socket.id);
     availableUsers.delete(targetUser.socketId);
 
-    // Notify both users to start call
+    // Notify both users to start call immediately
     io.to(roomId).emit('call-ready', {
       roomId,
       participants: [currentUser, targetUser]
     });
 
     console.log(`Active video calls: ${activeMatches.size}`);
+  });
+
+  // Swipe right - instant connect to any available user
+  socket.on('swipe-right', (targetUserId) => {
+    const currentUser = connectedUsers.get(socket.id);
+    
+    if (!currentUser) {
+      console.log('Invalid swipe: user not found');
+      return;
+    }
+
+    // Find an available user (could be the target or any other available user)
+    let targetUser = Array.from(connectedUsers.values()).find(user => user.id === targetUserId);
+    
+    // If target user is not available, find any available user
+    if (!targetUser || !availableUsers.has(targetUser.socketId) || pendingConnections.has(targetUser.socketId)) {
+      targetUser = findAvailableUser(socket.id);
+    }
+
+    if (!targetUser) {
+      console.log('No available users for connection');
+      socket.emit('match-found', { message: 'No users available right now' });
+      return;
+    }
+
+    // Trigger instant connection
+    socket.emit('accept-match', targetUser.id);
   });
 
   // WebRTC signaling
@@ -209,7 +221,6 @@ io.on('connection', (socket) => {
   socket.on('network-quality', (data) => {
     const { roomId, quality, bitrate, packetLoss, latency } = data;
     
-    // Broadcast network quality to other participants for adaptive streaming
     socket.to(roomId).emit('peer-network-quality', {
       from: socket.id,
       quality,
@@ -225,6 +236,10 @@ io.on('connection', (socket) => {
     const match = activeMatches.get(roomId);
     if (match) {
       console.log(`Ending video call between ${match.user1.name} and ${match.user2.name}`);
+      
+      // Clear pending connections
+      pendingConnections.delete(match.user1.socketId);
+      pendingConnections.delete(match.user2.socketId);
       
       // Return users to available pool
       if (connectedUsers.has(match.user1.socketId)) {
@@ -256,6 +271,9 @@ io.on('connection', (socket) => {
     if (user) {
       console.log(`User ${user.name} disconnected`);
       
+      // Clear pending connections
+      pendingConnections.delete(socket.id);
+      
       // Remove from all collections
       connectedUsers.delete(socket.id);
       availableUsers.delete(socket.id);
@@ -266,11 +284,12 @@ io.on('connection', (socket) => {
           socket.to(roomId).emit('call-ended', 'peer-disconnected');
           activeMatches.delete(roomId);
           
-          // Return other user to available pool
+          // Clear pending for other user and return to available pool
           const otherUserSocketId = match.user1.socketId === socket.id ? 
             match.user2.socketId : match.user1.socketId;
           const otherUser = connectedUsers.get(otherUserSocketId);
           if (otherUser) {
+            pendingConnections.delete(otherUserSocketId);
             availableUsers.set(otherUserSocketId, otherUser);
           }
           break;
@@ -286,7 +305,6 @@ io.on('connection', (socket) => {
 function calculateRecommendedBitrate(quality, packetLoss, latency) {
   let baseBitrate = 1000; // 1 Mbps base
   
-  // Adjust based on quality
   switch (quality) {
     case 'excellent': baseBitrate = 2000; break;
     case 'good': baseBitrate = 1500; break;
@@ -295,15 +313,13 @@ function calculateRecommendedBitrate(quality, packetLoss, latency) {
     default: baseBitrate = 1000;
   }
   
-  // Reduce bitrate based on packet loss
   if (packetLoss > 5) baseBitrate *= 0.7;
   if (packetLoss > 10) baseBitrate *= 0.5;
   
-  // Reduce bitrate based on latency
   if (latency > 200) baseBitrate *= 0.8;
   if (latency > 500) baseBitrate *= 0.6;
   
-  return Math.max(baseBitrate, 250); // Minimum 250 kbps
+  return Math.max(baseBitrate, 250);
 }
 
 // API endpoints
@@ -313,6 +329,7 @@ app.get('/health', (req, res) => {
     connectedUsers: connectedUsers.size,
     availableUsers: availableUsers.size,
     activeMatches: activeMatches.size,
+    pendingConnections: pendingConnections.size,
     uptime: process.uptime(),
     iceServersCount: iceServers.length
   });
@@ -323,6 +340,7 @@ app.get('/stats', (req, res) => {
     connectedUsers: connectedUsers.size,
     availableUsers: availableUsers.size,
     activeMatches: activeMatches.size,
+    pendingConnections: pendingConnections.size,
     serverTime: new Date().toISOString(),
     iceServers: iceServers
   });
@@ -335,20 +353,20 @@ app.get('/users', (req, res) => {
     name: user.name,
     age: user.age,
     gender: user.gender,
-    isOnline: user.isOnline
+    isOnline: user.isOnline,
+    isAvailable: availableUsers.has(user.socketId),
+    isPending: pendingConnections.has(user.socketId)
   }));
   res.json(users);
 });
 
-//dd
-
 // Start server
 server.listen(PORT, HOST, () => {
-  console.log(`🚀 WebRTC P2P Video Calling Server running on http://${HOST}:${PORT}`);
+  console.log(`🚀 Instant Video Chat Server running on http://${HOST}:${PORT}`);
   console.log(`📡 STUN servers: ${iceServers.filter(s => s.urls.includes('stun')).length}`);
   console.log(`🔄 TURN servers: ${iceServers.filter(s => s.urls.includes('turn')).length}`);
   console.log(`👥 Connected users: ${connectedUsers.size}`);
-  console.log(`💕 Available for matching: ${availableUsers.size}`);
+  console.log(`💚 Available for connection: ${availableUsers.size}`);
   console.log(`📹 Active video calls: ${activeMatches.size}`);
 });
 
