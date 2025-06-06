@@ -24,22 +24,46 @@ const connectedUsers = new Map();
 const availableUsers = new Map(); // Users available for matching
 const activeMatches = new Map(); // Active video calls
 
-// STUN/TURN configuration
+// ENHANCED STUN/TURN configuration with FREE TURN servers
 const iceServers = [
+  // STUN servers (for IP discovery)
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
-  // Add your TURN server here when needed
-  // {
-  //   urls: 'turn:your-turn-server:3478',
-  //   username: 'username',
-  //   credential: 'password'
-  // }
+  { urls: 'stun:stun.relay.metered.ca:80' },
+  
+  // FREE TURN servers (for video relay when P2P fails)
+  {
+    urls: 'turn:relay.metered.ca:80',
+    username: 'openrelayproject',
+    credential: 'openrelayproject'
+  },
+  {
+    urls: 'turn:relay.metered.ca:443',
+    username: 'openrelayproject', 
+    credential: 'openrelayproject'
+  },
+  {
+    urls: 'turn:relay.metered.ca:443?transport=tcp',
+    username: 'openrelayproject',
+    credential: 'openrelayproject'
+  },
+  // Additional free TURN servers for better reliability
+  {
+    urls: 'turn:openrelay.metered.ca:80',
+    username: 'openrelayproject',
+    credential: 'openrelayproject'
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443',
+    username: 'openrelayproject',
+    credential: 'openrelayproject'
+  }
 ];
 
 // Generate random profile data
 const generateRandomProfile = () => {
-  const firstNames = ['Alex', 'Jordan', 'Casey', 'Riley', 'Avery', 'Quinn', 'Blake', 'Cameron', 'Drew', 'Sage'];
-  const interests = ['Travel', 'Music', 'Photography', 'Fitness', 'Cooking', 'Reading', 'Gaming', 'Art', 'Dancing', 'Sports'];
+  const firstNames = ['Alex', 'Jordan', 'Casey', 'Riley', 'Avery', 'Quinn', 'Blake', 'Cameron', 'Drew', 'Sage', 'Taylor', 'Morgan', 'Skyler', 'Rowan', 'Phoenix'];
+  const interests = ['Travel', 'Music', 'Photography', 'Fitness', 'Cooking', 'Reading', 'Gaming', 'Art', 'Dancing', 'Sports', 'Movies', 'Nature', 'Technology', 'Fashion', 'Yoga'];
   const genders = ['male', 'female'];
   
   const randomName = firstNames[Math.floor(Math.random() * firstNames.length)];
@@ -77,6 +101,7 @@ io.on('connection', (socket) => {
     socket.emit('ice-servers', iceServers);
     
     console.log(`User ${profile.name} joined with ID: ${socket.id}`);
+    console.log(`Total connected users: ${connectedUsers.size}`);
   });
 
   // Get potential matches
@@ -89,6 +114,7 @@ io.on('connection', (socket) => {
       .slice(0, 10); // Limit to 10 matches at a time
 
     socket.emit('potential-matches', potentialMatches);
+    console.log(`Sent ${potentialMatches.length} potential matches to ${currentUser.name}`);
   });
 
   // Swipe right (like)
@@ -97,7 +123,12 @@ io.on('connection', (socket) => {
     const targetUser = Array.from(connectedUsers.values())
       .find(user => user.id === targetUserId);
 
-    if (!currentUser || !targetUser) return;
+    if (!currentUser || !targetUser) {
+      console.log('Invalid swipe: user not found');
+      return;
+    }
+
+    console.log(`${currentUser.name} liked ${targetUser.name}`);
 
     // Notify target user of the match
     io.to(targetUser.socketId).emit('match-found', {
@@ -117,9 +148,14 @@ io.on('connection', (socket) => {
     const targetUser = Array.from(connectedUsers.values())
       .find(user => user.id === targetUserId);
 
-    if (!currentUser || !targetUser) return;
+    if (!currentUser || !targetUser) {
+      console.log('Invalid match acceptance: user not found');
+      return;
+    }
 
     const roomId = `room_${Date.now()}`;
+    
+    console.log(`Starting video call between ${currentUser.name} and ${targetUser.name} in room ${roomId}`);
     
     // Join both users to the same room
     socket.join(roomId);
@@ -141,10 +177,13 @@ io.on('connection', (socket) => {
       roomId,
       participants: [currentUser, targetUser]
     });
+
+    console.log(`Active video calls: ${activeMatches.size}`);
   });
 
   // WebRTC signaling
   socket.on('offer', (data) => {
+    console.log(`Relaying offer in room ${data.roomId}`);
     socket.to(data.roomId).emit('offer', {
       offer: data.offer,
       from: socket.id
@@ -152,6 +191,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('answer', (data) => {
+    console.log(`Relaying answer in room ${data.roomId}`);
     socket.to(data.roomId).emit('answer', {
       answer: data.answer,
       from: socket.id
@@ -184,9 +224,15 @@ io.on('connection', (socket) => {
   socket.on('end-call', (roomId) => {
     const match = activeMatches.get(roomId);
     if (match) {
+      console.log(`Ending video call between ${match.user1.name} and ${match.user2.name}`);
+      
       // Return users to available pool
-      availableUsers.set(match.user1.socketId, match.user1);
-      availableUsers.set(match.user2.socketId, match.user2);
+      if (connectedUsers.has(match.user1.socketId)) {
+        availableUsers.set(match.user1.socketId, match.user1);
+      }
+      if (connectedUsers.has(match.user2.socketId)) {
+        availableUsers.set(match.user2.socketId, match.user2);
+      }
       
       activeMatches.delete(roomId);
       
@@ -199,6 +245,8 @@ io.on('connection', (socket) => {
           io.sockets.sockets.get(socketId)?.leave(roomId);
         });
       }
+      
+      console.log(`Active video calls: ${activeMatches.size}`);
     }
   });
 
@@ -217,9 +265,19 @@ io.on('connection', (socket) => {
         if (match.user1.socketId === socket.id || match.user2.socketId === socket.id) {
           socket.to(roomId).emit('call-ended', 'peer-disconnected');
           activeMatches.delete(roomId);
+          
+          // Return other user to available pool
+          const otherUserSocketId = match.user1.socketId === socket.id ? 
+            match.user2.socketId : match.user1.socketId;
+          const otherUser = connectedUsers.get(otherUserSocketId);
+          if (otherUser) {
+            availableUsers.set(otherUserSocketId, otherUser);
+          }
           break;
         }
       }
+      
+      console.log(`Remaining connected users: ${connectedUsers.size}`);
     }
   });
 });
@@ -255,7 +313,8 @@ app.get('/health', (req, res) => {
     connectedUsers: connectedUsers.size,
     availableUsers: availableUsers.size,
     activeMatches: activeMatches.size,
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    iceServersCount: iceServers.length
   });
 });
 
@@ -264,23 +323,38 @@ app.get('/stats', (req, res) => {
     connectedUsers: connectedUsers.size,
     availableUsers: availableUsers.size,
     activeMatches: activeMatches.size,
-    serverTime: new Date().toISOString()
+    serverTime: new Date().toISOString(),
+    iceServers: iceServers
   });
+});
+
+// Get all connected users (for debugging)
+app.get('/users', (req, res) => {
+  const users = Array.from(connectedUsers.values()).map(user => ({
+    id: user.id,
+    name: user.name,
+    age: user.age,
+    gender: user.gender,
+    isOnline: user.isOnline
+  }));
+  res.json(users);
 });
 
 // Start server
 server.listen(PORT, HOST, () => {
-  console.log(`WebRTC P2P Video Calling Server running on http://${HOST}:${PORT}`);
-  console.log(`Connected users: ${connectedUsers.size}`);
-  console.log(`Available for matching: ${availableUsers.size}`);
-  console.log(`Active video calls: ${activeMatches.size}`);
+  console.log(`🚀 WebRTC P2P Video Calling Server running on http://${HOST}:${PORT}`);
+  console.log(`📡 STUN servers: ${iceServers.filter(s => s.urls.includes('stun')).length}`);
+  console.log(`🔄 TURN servers: ${iceServers.filter(s => s.urls.includes('turn')).length}`);
+  console.log(`👥 Connected users: ${connectedUsers.size}`);
+  console.log(`💕 Available for matching: ${availableUsers.size}`);
+  console.log(`📹 Active video calls: ${activeMatches.size}`);
 });
 
 // Graceful shutdown
 process.on('SIGINT', () => {
-  console.log('Shutting down server gracefully...');
+  console.log('\n🛑 Shutting down server gracefully...');
   server.close(() => {
-    console.log('Server closed');
+    console.log('✅ Server closed');
     process.exit(0);
   });
 });
