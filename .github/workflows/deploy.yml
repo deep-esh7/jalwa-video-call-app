@@ -1,0 +1,61 @@
+name: Deploy Jalwa Video Call Server
+
+on:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Deploy to server
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.PRIVATE_KEY }}
+        port: ${{ secrets.PORT }}
+        script: |
+          cd /var/www/video-calling-server
+          
+          echo "🔄 Stopping current server..."
+          pm2 stop webrtc-server || true
+          
+          echo "📥 Pulling latest changes..."
+          git pull origin main
+          
+          echo "📦 Installing dependencies..."
+          npm ci --production
+          
+          echo "🚀 Starting server..."
+          pm2 start ecosystem.config.js
+          pm2 save
+          
+          echo "✅ Deployment completed!"
+          pm2 status
+          
+          echo "🔍 Testing server..."
+          sleep 3
+          curl -f http://147.93.108.247:4000/health || echo "Health check failed"
+
+    - name: Notify deployment status
+      if: always()
+      run: |
+        if [ ${{ job.status }} == 'success' ]; then
+          echo "✅ Deployment successful!"
+        else
+          echo "❌ Deployment failed!"
+        fi
