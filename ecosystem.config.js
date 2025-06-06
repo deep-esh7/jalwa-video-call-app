@@ -47,14 +47,14 @@ module.exports = {
     }
   }],
   
-  // Deployment configuration (optional)
+  // Deployment configuration
   deploy: {
     production: {
       user: 'root',
       host: '147.93.108.247',
       ref: 'origin/main',
-      repo: 'your-git-repo-url',
-      path: '/var/www/webrtc-server',
+      repo: 'https://github.com/deep-esh7/jalwa-video-call-app.git',
+      path: '/var/www/video-calling-server',
       'post-deploy': 'npm install && pm2 reload ecosystem.config.js --env production'
     }
   }
