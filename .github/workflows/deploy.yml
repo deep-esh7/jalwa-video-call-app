@@ -1,4 +1,4 @@
-name: Deploy Jalwa Auto-Connect Video Chat Server
+name: Deploy Jalwa Firebase Video Chat Server
 
 on:
   push:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Deploy to server
+    - name: Deploy Firebase-integrated server
       uses: appleboy/ssh-action@v1.0.0
       with:
         host: ${{ secrets.HOST }}
@@ -22,42 +22,55 @@ jobs:
           
           echo "🔄 Stopping current servers..."
           pm2 stop jalwa-auto-connect-server || true
+          pm2 stop jalwa-firebase-server || true
           pm2 stop webrtc-server || true
           pm2 delete jalwa-auto-connect-server || true
+          pm2 delete jalwa-firebase-server || true
           pm2 delete webrtc-server || true
           
-          echo "📥 Pulling latest auto-connect changes..."
+          echo "📥 Pulling latest Firebase-integrated changes..."
           git pull origin main
           
-          echo "📦 Installing dependencies..."
+          echo "📦 Installing dependencies (including Firebase Admin)..."
           npm ci --omit=dev
           
           echo "📁 Creating logs directory..."
           mkdir -p logs
           
-          echo "🧹 Clearing PM2 logs..."
-          pm2 flush
-          
-          echo "🚀 Starting auto-connect server..."
-          pm2 start ecosystem.config.js --env production
-          pm2 save
-          
-          echo "✅ Auto-connect deployment completed!"
-          pm2 status
-          
-          echo "⏳ Waiting for server to start..."
-          sleep 10
-          
-          # Check if process is running
-          if pm2 list | grep -q "jalwa-auto-connect-server.*online"; then
-            echo "✅ PM2 process is running!"
+          echo "🔐 Checking Firebase service account key..."
+          if [ -f "firebase-service-account-key.json" ]; then
+            echo "✅ Firebase service account key found"
+            chmod 600 firebase-service-account-key.json
           else
-            echo "❌ PM2 process failed to start!"
-            pm2 logs jalwa-auto-connect-server --lines 20
+            echo "❌ Firebase service account key NOT found!"
+            echo "📋 Please upload firebase-service-account-key.json to the server"
+            echo "💡 You can upload it using: scp firebase-service-account-key.json root@147.93.108.247:/var/www/video-calling-server/jalwa-video-call-app/"
             exit 1
           fi
           
-          echo "🔍 Testing auto-connect server..."
+          echo "🧹 Clearing PM2 logs..."
+          pm2 flush
+          
+          echo "🚀 Starting Firebase-integrated server..."
+          pm2 start ecosystem.config.js --env production
+          pm2 save
+          
+          echo "✅ Firebase deployment completed!"
+          pm2 status
+          
+          echo "⏳ Waiting for server to start..."
+          sleep 15
+          
+          # Check if process is running
+          if pm2 list | grep -q "jalwa-firebase-server.*online"; then
+            echo "✅ PM2 Firebase server is running!"
+          else
+            echo "❌ PM2 Firebase server failed to start!"
+            pm2 logs jalwa-firebase-server --lines 20
+            exit 1
+          fi
+          
+          echo "🔍 Testing Firebase-integrated server..."
           # Test health endpoint with retries
           for i in {1..5}; do
             if curl -f http://147.93.108.247:4000/health; then
@@ -65,37 +78,56 @@ jobs:
               break
             else
               echo "⚠️ Health check failed on attempt $i, retrying..."
-              sleep 3
+              sleep 5
               if [ $i -eq 5 ]; then
                 echo "❌ Health check failed after 5 attempts!"
                 echo "📋 Server logs:"
-                pm2 logs jalwa-auto-connect-server --lines 10
+                pm2 logs jalwa-firebase-server --lines 20
                 exit 1
               fi
             fi
           done
           
-          # Test stats endpoint
-          echo "📊 Checking auto-connect stats..."
-          curl -s http://147.93.108.247:4000/stats || echo "⚠️ Stats endpoint check"
+          # Test Firebase-specific endpoints
+          echo "🔥 Testing Firebase integration..."
           
-          echo "🎯 Auto-connect Chatroulette server is running!"
+          echo "📊 Checking server stats..."
+          if curl -s http://147.93.108.247:4000/stats | grep -q "firebaseAvailableUsers"; then
+            echo "✅ Firebase stats endpoint working!"
+          else
+            echo "⚠️ Firebase stats may not be fully working"
+          fi
+          
+          echo "👥 Testing Firebase users endpoint..."
+          curl -s http://147.93.108.247:4000/firebase-users || echo "⚠️ Firebase users endpoint check"
+          
+          echo "🎯 Firebase-integrated Jalwa server is running!"
 
     - name: Notify deployment status
       if: always()
       run: |
         if [ ${{ job.status }} == 'success' ]; then
-          echo "🎉 Auto-connect deployment successful!"
-          echo "🚀 Chatroulette-style video chat is now live!"
+          echo "🎉 Firebase deployment successful!"
+          echo "🔥 Firebase-integrated video chat server is live!"
           echo "📡 Server: http://147.93.108.247:4000"
-          echo "🔄 Auto-matching: ENABLED"
-          echo "📱 Ready for Flutter app connections!"
+          echo "🔄 Auto-matching: ENABLED with Firebase"
+          echo "📱 Ready for Flutter app with Firebase Auth!"
+          echo ""
+          echo "🆕 New Features:"
+          echo "  • Firebase Realtime Database integration"
+          echo "  • Real-time user presence tracking"
+          echo "  • Enhanced auto-matching algorithm"
+          echo "  • Scalable user management"
         else
-          echo "❌ Auto-connect deployment failed!"
+          echo "❌ Firebase deployment failed!"
           echo "🔧 Please check the server logs"
+          echo "💡 Common issues:"
+          echo "  • Missing firebase-service-account-key.json"
+          echo "  • Incorrect Firebase database URL"
+          echo "  • Network connectivity to Firebase"
         fi
 
-    - name: Performance check
+    - name: Firebase performance check
       if: success()
       uses: appleboy/ssh-action@v1.0.0
       with:
@@ -104,11 +136,40 @@ jobs:
         key: ${{ secrets.PRIVATE_KEY }}
         port: ${{ secrets.PORT }}
         script: |
-          echo "📈 Performance metrics:"
+          echo "📈 Firebase Performance Metrics:"
+          echo ""
           echo "💾 Memory usage:"
           free -h | head -2
+          echo ""
           echo "🌐 PM2 process info:"
           pm2 list | grep jalwa || echo "Process check completed"
-          echo "📊 Server stats:"
-          curl -s http://147.93.108.247:4000/stats | head -5 || echo "Server responsive"
-          echo "🎯 Performance check completed!"
+          echo ""
+          echo "📊 Server health check:"
+          curl -s http://147.93.108.247:4000/health | jq '.' || curl -s http://147.93.108.247:4000/health
+          echo ""
+          echo "🔥 Firebase-specific metrics:"
+          curl -s http://147.93.108.247:4000/stats | jq '.firebaseAvailableUsers, .socketConnections, .activeRooms' || echo "Metrics retrieved"
+          echo ""
+          echo "🎯 Firebase performance check completed!"
+
+    - name: Test Firebase connectivity
+      if: success()
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.PRIVATE_KEY }}
+        port: ${{ secrets.PORT }}
+        script: |
+          echo "🔥 Testing Firebase connectivity..."
+          
+          # Test force match endpoint (this will test Firebase read/write)
+          echo "🎯 Testing auto-matching with Firebase..."
+          curl -X POST -s http://147.93.108.247:4000/force-match | jq '.' || curl -X POST -s http://147.93.108.247:4000/force-match
+          
+          echo ""
+          echo "✅ Firebase connectivity test completed!"
+          
+          # Show recent logs for any Firebase errors
+          echo "📋 Recent server logs (last 10 lines):"
+          pm2 logs jalwa-firebase-server --lines 10 --nostream || echo "Logs retrieved"
