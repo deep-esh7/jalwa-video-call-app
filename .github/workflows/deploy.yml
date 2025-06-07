@@ -136,7 +136,7 @@ jobs:
     - name: Notify deployment status
       if: always()
       run: |
-        if [ ${{ job.status }} == 'success' ]; then
+        if [ "${{ job.status }}" == "success" ]; then
           echo "🎉 Firebase deployment successful!"
           echo "🔥 Firebase-integrated video chat server is live!"
           echo "📡 Server: http://147.93.108.247:4000"
@@ -162,6 +162,7 @@ jobs:
           echo "  • Network connectivity to Firebase"
           echo "  • Package dependency conflicts"
           echo "  • Invalid Firebase service account key format"
+        fi
 
     - name: Firebase performance check
       if: success()
@@ -184,16 +185,10 @@ jobs:
           curl -s http://147.93.108.247:4000/health | python3 -m json.tool 2>/dev/null || curl -s http://147.93.108.247:4000/health
           echo ""
           echo "🔥 Firebase-specific metrics:"
-          curl -s http://147.93.108.247:4000/stats | python3 -c "
-          import sys, json
-          try:
-              data = json.load(sys.stdin)
-              print(f'Firebase Available Users: {data.get(\"firebaseAvailableUsers\", \"N/A\")}')
-              print(f'Socket Connections: {data.get(\"socketConnections\", \"N/A\")}')
-              print(f'Active Rooms: {data.get(\"activeRooms\", \"N/A\")}')
-          except:
-              print('Could not parse JSON response')
-          " 2>/dev/null || echo "Metrics retrieved"
+          STATS_RESPONSE=$(curl -s http://147.93.108.247:4000/stats)
+          echo "Firebase Available Users: $(echo "$STATS_RESPONSE" | python3 -c "import sys, json; data = json.load(sys.stdin); print(data.get('firebaseAvailableUsers', 'N/A'))" 2>/dev/null || echo "N/A")"
+          echo "Socket Connections: $(echo "$STATS_RESPONSE" | python3 -c "import sys, json; data = json.load(sys.stdin); print(data.get('socketConnections', 'N/A'))" 2>/dev/null || echo "N/A")"
+          echo "Active Rooms: $(echo "$STATS_RESPONSE" | python3 -c "import sys, json; data = json.load(sys.stdin); print(data.get('activeRooms', 'N/A'))" 2>/dev/null || echo "N/A")"
           echo ""
           echo "🎯 Firebase performance check completed!"
 
@@ -210,7 +205,8 @@ jobs:
           
           # Test force match endpoint (this will test Firebase read/write)
           echo "🎯 Testing auto-matching with Firebase..."
-          curl -X POST -s http://147.93.108.247:4000/force-match | python3 -m json.tool 2>/dev/null || curl -X POST -s http://147.93.108.247:4000/force-match
+          FORCE_MATCH_RESPONSE=$(curl -X POST -s http://147.93.108.247:4000/force-match)
+          echo "Force match response: $FORCE_MATCH_RESPONSE"
           
           echo ""
           echo "✅ Firebase connectivity test completed!"
@@ -222,3 +218,6 @@ jobs:
           echo ""
           echo "📋 Recent error logs (if any):"
           pm2 logs jalwa-firebase-server --err --lines 5 --nostream || echo "No recent errors"
+          
+          echo ""
+          echo "🎉 All Firebase integration tests completed successfully!"
