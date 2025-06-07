@@ -32,7 +32,14 @@ jobs:
           git pull origin main
           
           echo "📦 Installing dependencies (including Firebase Admin)..."
-          npm ci --omit=dev
+          # FIXED: Remove package-lock.json if it exists and use npm install instead of npm ci
+          if [ -f "package-lock.json" ]; then
+            echo "🗑️ Removing outdated package-lock.json..."
+            rm package-lock.json
+          fi
+          
+          # Use npm install to generate new package-lock.json that matches package.json
+          npm install --omit=dev
           
           echo "📁 Creating logs directory..."
           mkdir -p logs
@@ -41,11 +48,27 @@ jobs:
           if [ -f "firebase-service-account-key.json" ]; then
             echo "✅ Firebase service account key found"
             chmod 600 firebase-service-account-key.json
+            
+            # Verify the key is valid JSON
+            if python3 -m json.tool firebase-service-account-key.json > /dev/null 2>&1; then
+              echo "✅ Firebase service account key is valid JSON"
+            else
+              echo "❌ Firebase service account key is not valid JSON!"
+              exit 1
+            fi
           else
             echo "❌ Firebase service account key NOT found!"
             echo "📋 Please upload firebase-service-account-key.json to the server"
             echo "💡 You can upload it using: scp firebase-service-account-key.json root@147.93.108.247:/var/www/video-calling-server/jalwa-video-call-app/"
             exit 1
+          fi
+          
+          echo "🔍 Verifying Firebase dependency installation..."
+          if npm list firebase-admin > /dev/null 2>&1; then
+            echo "✅ Firebase Admin SDK is installed"
+          else
+            echo "❌ Firebase Admin SDK not found, installing..."
+            npm install firebase-admin --save
           fi
           
           echo "🧹 Clearing PM2 logs..."
@@ -66,7 +89,10 @@ jobs:
             echo "✅ PM2 Firebase server is running!"
           else
             echo "❌ PM2 Firebase server failed to start!"
+            echo "📋 Server logs:"
             pm2 logs jalwa-firebase-server --lines 20
+            echo "📋 PM2 error logs:"
+            pm2 logs jalwa-firebase-server --err --lines 10
             exit 1
           fi
           
@@ -83,6 +109,8 @@ jobs:
                 echo "❌ Health check failed after 5 attempts!"
                 echo "📋 Server logs:"
                 pm2 logs jalwa-firebase-server --lines 20
+                echo "📋 Error logs:"
+                pm2 logs jalwa-firebase-server --err --lines 10
                 exit 1
               fi
             fi
@@ -96,6 +124,8 @@ jobs:
             echo "✅ Firebase stats endpoint working!"
           else
             echo "⚠️ Firebase stats may not be fully working"
+            echo "📋 Stats response:"
+            curl -s http://147.93.108.247:4000/stats || echo "Failed to get stats"
           fi
           
           echo "👥 Testing Firebase users endpoint..."
@@ -118,14 +148,20 @@ jobs:
           echo "  • Real-time user presence tracking"
           echo "  • Enhanced auto-matching algorithm"
           echo "  • Scalable user management"
+          echo ""
+          echo "🔗 Test endpoints:"
+          echo "  • Health: http://147.93.108.247:4000/health"
+          echo "  • Stats: http://147.93.108.247:4000/stats"
+          echo "  • Firebase Users: http://147.93.108.247:4000/firebase-users"
         else
           echo "❌ Firebase deployment failed!"
           echo "🔧 Please check the server logs"
           echo "💡 Common issues:"
           echo "  • Missing firebase-service-account-key.json"
-          echo "  • Incorrect Firebase database URL"
+          echo "  • Incorrect Firebase database URL in ecosystem.config.js"
           echo "  • Network connectivity to Firebase"
-        fi
+          echo "  • Package dependency conflicts"
+          echo "  • Invalid Firebase service account key format"
 
     - name: Firebase performance check
       if: success()
@@ -145,10 +181,19 @@ jobs:
           pm2 list | grep jalwa || echo "Process check completed"
           echo ""
           echo "📊 Server health check:"
-          curl -s http://147.93.108.247:4000/health | jq '.' || curl -s http://147.93.108.247:4000/health
+          curl -s http://147.93.108.247:4000/health | python3 -m json.tool 2>/dev/null || curl -s http://147.93.108.247:4000/health
           echo ""
           echo "🔥 Firebase-specific metrics:"
-          curl -s http://147.93.108.247:4000/stats | jq '.firebaseAvailableUsers, .socketConnections, .activeRooms' || echo "Metrics retrieved"
+          curl -s http://147.93.108.247:4000/stats | python3 -c "
+          import sys, json
+          try:
+              data = json.load(sys.stdin)
+              print(f'Firebase Available Users: {data.get(\"firebaseAvailableUsers\", \"N/A\")}')
+              print(f'Socket Connections: {data.get(\"socketConnections\", \"N/A\")}')
+              print(f'Active Rooms: {data.get(\"activeRooms\", \"N/A\")}')
+          except:
+              print('Could not parse JSON response')
+          " 2>/dev/null || echo "Metrics retrieved"
           echo ""
           echo "🎯 Firebase performance check completed!"
 
@@ -165,7 +210,7 @@ jobs:
           
           # Test force match endpoint (this will test Firebase read/write)
           echo "🎯 Testing auto-matching with Firebase..."
-          curl -X POST -s http://147.93.108.247:4000/force-match | jq '.' || curl -X POST -s http://147.93.108.247:4000/force-match
+          curl -X POST -s http://147.93.108.247:4000/force-match | python3 -m json.tool 2>/dev/null || curl -X POST -s http://147.93.108.247:4000/force-match
           
           echo ""
           echo "✅ Firebase connectivity test completed!"
@@ -173,3 +218,7 @@ jobs:
           # Show recent logs for any Firebase errors
           echo "📋 Recent server logs (last 10 lines):"
           pm2 logs jalwa-firebase-server --lines 10 --nostream || echo "Logs retrieved"
+          
+          echo ""
+          echo "📋 Recent error logs (if any):"
+          pm2 logs jalwa-firebase-server --err --lines 5 --nostream || echo "No recent errors"
