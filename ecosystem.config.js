@@ -10,7 +10,7 @@ module.exports = {
       NODE_ENV: 'production',
       PORT: 4000,
       HOST: '147.93.108.247',
-      FIREBASE_DATABASE_URL: 'https://your-project-id-default-rtdb.firebaseio.com/',
+      FIREBASE_DATABASE_URL: 'https://jalwa-online-video-chat-default-rtdb.asia-southeast1.firebasedatabase.app/',
       GOOGLE_APPLICATION_CREDENTIALS: './firebase-service-account-key.json'
     },
         
@@ -19,7 +19,7 @@ module.exports = {
       NODE_ENV: 'production',
       PORT: 4000,
       HOST: '147.93.108.247',
-      FIREBASE_DATABASE_URL: 'https://your-project-id-default-rtdb.firebaseio.com/',
+      FIREBASE_DATABASE_URL: 'https://jalwa-online-video-chat-default-rtdb.asia-southeast1.firebasedatabase.app/',
       GOOGLE_APPLICATION_CREDENTIALS: './firebase-service-account-key.json'
     },
         
