@@ -24,7 +24,7 @@ const serviceAccount = require('./firebase-service-account-key.json'); // Downlo
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://your-project-id-default-rtdb.firebaseio.com/" // Replace with your Firebase project URL
+  databaseURL: "https://jalwa-online-video-chat-default-rtdb.asia-southeast1.firebasedatabase.app/"
 });
 
 const db = admin.database();
