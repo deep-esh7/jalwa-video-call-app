@@ -104,15 +104,6 @@ async function setUserAvailable(userId) {
       lastSeen: admin.database.ServerValue.TIMESTAMP
     });
     
-    // Add back to available users list if socket connected
-    if (userSockets.has(userId)) {
-      await db.ref(`availableUsers/${userId}`).set({
-        userId: userId,
-        timestamp: admin.database.ServerValue.TIMESTAMP,
-        status: 'searching',
-      });
-    }
-    
     console.log(`✅ User ${userId} set as available`);
   } catch (error) {
     console.error(`❌ Error setting user ${userId} as available:`, error);
@@ -264,54 +255,11 @@ async function performAutoMatching() {
   }
 }
 
-// ENHANCED: Function to properly end current call before finding next user
-async function endCurrentCallForUser(userId) {
-  try {
-    console.log(`🔄 Ending current call for user: ${userId}`);
-    
-    // Find and end any active room the user is in
-    for (const [roomId, room] of activeRooms.entries()) {
-      if (room.participants.includes(userId)) {
-        console.log(`📞 Found active room ${roomId} for user ${userId}`);
-        
-        // End the Firebase call
-        await endFirebaseCall(room.callId);
-        
-        // End the socket room
-        await endSocketCall(roomId);
-        
-        console.log(`✅ Ended current call for user ${userId}`);
-        return true;
-      }
-    }
-    
-    // Also check if user is marked as busy in Firebase and clean up
-    const userProfile = await getUserProfile(userId);
-    if (userProfile && userProfile.status === 'busy' && userProfile.currentCallId) {
-      console.log(`🧹 Cleaning up busy status for user ${userId}`);
-      await setUserAvailable(userId);
-    }
-    
-    return false;
-  } catch (error) {
-    console.error(`❌ Error ending current call for user ${userId}:`, error);
-    return false;
-  }
-}
-
 // Enhanced function to find next user for someone already in call
 async function findNextUserForExistingUser(currentUserId) {
   try {
     console.log(`🔍 Finding next user for: ${currentUserId}`);
     
-    // CRITICAL: First end the current call properly
-    console.log(`🔄 Step 1: Ending current call for ${currentUserId}`);
-    await endCurrentCallForUser(currentUserId);
-    
-    // Wait for cleanup to complete
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Get fresh list of available users
     const availableUserIds = await getAvailableUsers();
     
     // Filter out current user and users not connected to socket
@@ -325,18 +273,6 @@ async function findNextUserForExistingUser(currentUserId) {
     
     if (eligibleUsers.length === 0) {
       console.log(`😔 No eligible next users found for ${currentUserId}`);
-      
-      // Send no-users-available event to the requesting user
-      const currentUserSocketId = userSockets.get(currentUserId);
-      if (currentUserSocketId) {
-        const currentUserSocket = io.sockets.sockets.get(currentUserSocketId);
-        if (currentUserSocket) {
-          currentUserSocket.emit('no-users-available', {
-            message: 'No users available right now. Try again later.'
-          });
-        }
-      }
-      
       return null;
     }
     
@@ -483,7 +419,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ENHANCED: Request next user (for skip functionality)
+  // NEW: Request next user (for skip functionality)
   socket.on('request-next-user', async () => {
     try {
       const connection = socketConnections.get(socket.id);
@@ -495,16 +431,24 @@ io.on('connection', (socket) => {
       const { userId } = connection;
       console.log(`⏭️ Next user requested by: ${userId}`);
       
-      // Remove from ongoing matching if present (cleanup)
-      ongoingMatching.delete(userId);
+      // End current call if in one
+      for (const [roomId, room] of activeRooms.entries()) {
+        if (room.participants.includes(userId)) {
+          await endSocketCall(roomId);
+          break;
+        }
+      }
       
-      // Find next available user with proper cleanup
+      // Find next available user
       const nextUserResult = await findNextUserForExistingUser(userId);
       
       if (nextUserResult) {
         console.log(`✅ Next user found for ${userId}: ${nextUserResult.selectedUserId}`);
       } else {
         console.log(`😔 No next user available for ${userId}`);
+        socket.emit('no-users-available', { 
+          message: 'No users available right now. Try again later.' 
+        });
       }
       
     } catch (error) {
@@ -537,7 +481,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // ENHANCED: End call with proper cleanup
+  // End call
   socket.on('end-call', async (data) => {
     try {
       const { roomId, callId } = data;
@@ -575,7 +519,16 @@ io.on('connection', (socket) => {
         userSockets.delete(userId);
         
         // End any active calls
-        await endCurrentCallForUser(userId);
+        for (const [roomId, room] of activeRooms.entries()) {
+          if (room.participants.includes(userId)) {
+            await endFirebaseCall(room.callId);
+            await endSocketCall(roomId);
+            
+            // Notify other participant
+            socket.to(roomId).emit('call-ended', { reason: 'peer-disconnected' });
+            break;
+          }
+        }
         
         console.log(`🧹 Cleaned up user ${userId}`);
       }
@@ -629,7 +582,7 @@ setInterval(performAutoMatching, 10000); // Every 10 seconds
 setInterval(() => {
   console.log(`🧹 Ongoing matching cleanup - Current size: ${ongoingMatching.size}`);
   // Clear ongoing matching that might be stuck (older than 30 seconds)
-  // This is a safety mechanism - in production you might want to track timestamps
+  // This is a safety mechanism
 }, 30000);
 
 // Setup Firebase listeners
@@ -726,7 +679,7 @@ server.listen(PORT, HOST, () => {
   console.log(`🔥 Firebase connected and ready`);
   console.log(`📡 STUN servers: ${iceServers.filter(s => s.urls.includes('stun')).length}`);
   console.log(`🔄 TURN servers: ${iceServers.filter(s => s.urls.includes('turn')).length}`);
-  console.log(`🤖 Auto-matching with enhanced next user functionality enabled!`);
+  console.log(`🤖 Auto-matching with next user functionality enabled!`);
 });
 
 // Graceful shutdown
