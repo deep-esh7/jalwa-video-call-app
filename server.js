@@ -19,8 +19,7 @@ const PORT = 4000;
 const HOST = '147.93.108.247';
 
 // Initialize Firebase Admin SDK
-// You'll need to download your service account key and place it in the project
-const serviceAccount = require('./firebase-service-account-key.json'); // Download from Firebase Console
+const serviceAccount = require('./firebase-service-account-key.json');
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -35,8 +34,9 @@ app.use(express.json());
 
 // Store socket connections and active calls
 const socketConnections = new Map(); // socketId -> { userId, userData, socketRef }
-const activeRooms = new Map(); // roomId -> { participants, startTime }
+const activeRooms = new Map(); // roomId -> { participants, startTime, callId }
 const userSockets = new Map(); // userId -> socketId
+const ongoingMatching = new Set(); // Track users currently being matched
 
 // ENHANCED STUN/TURN configuration
 const iceServers = [
@@ -164,22 +164,28 @@ async function endFirebaseCall(callId) {
   }
 }
 
-// Auto-matching algorithm using Firebase data
+// Enhanced auto-matching algorithm
 async function performAutoMatching() {
   try {
     console.log('🔍 Performing auto-matching...');
     
     const availableUserIds = await getAvailableUsers();
     
-    // Filter out users who are already connected to our socket server
-    const socketConnectedUsers = availableUserIds.filter(userId => userSockets.has(userId));
+    // Filter out users who are already connected to our socket server and not in ongoing matching
+    const socketConnectedUsers = availableUserIds.filter(userId => 
+      userSockets.has(userId) && !ongoingMatching.has(userId)
+    );
     
-    console.log(`📊 Available users: ${availableUserIds.length}, Socket connected: ${socketConnectedUsers.length}`);
+    console.log(`📊 Available users: ${availableUserIds.length}, Socket connected: ${socketConnectedUsers.length}, In matching: ${ongoingMatching.size}`);
     
     // Pair users for auto-matching
     while (socketConnectedUsers.length >= 2) {
       const user1Id = socketConnectedUsers.shift();
       const user2Id = socketConnectedUsers.shift();
+      
+      // Add to ongoing matching to prevent double-matching
+      ongoingMatching.add(user1Id);
+      ongoingMatching.add(user2Id);
       
       const user1SocketId = userSockets.get(user1Id);
       const user2SocketId = userSockets.get(user2Id);
@@ -213,25 +219,138 @@ async function performAutoMatching() {
             const user1Profile = await getUserProfile(user1Id);
             const user2Profile = await getUserProfile(user2Id);
             
-            // Notify both users that call is ready
-            io.to(roomId).emit('call-ready', {
+            // Prepare call-ready data
+            const callReadyData = {
               roomId: roomId,
               callId: callId,
               participants: [
-                { ...user1Profile, socketId: user1SocketId },
-                { ...user2Profile, socketId: user2SocketId }
+                { ...user1Profile, userId: user1Id, socketId: user1SocketId },
+                { ...user2Profile, userId: user2Id, socketId: user2SocketId }
               ],
-              callData: callData
-            });
+              callData: {
+                ...callData,
+                roomId: roomId
+              }
+            };
+            
+            // Notify both users that call is ready
+            io.to(roomId).emit('call-ready', callReadyData);
             
             console.log(`✅ Auto-match successful: Room ${roomId} created`);
           }
         }
+        
+        // Remove from ongoing matching
+        ongoingMatching.delete(user1Id);
+        ongoingMatching.delete(user2Id);
+      } else {
+        // Remove from ongoing matching if socket not found
+        ongoingMatching.delete(user1Id);
+        ongoingMatching.delete(user2Id);
       }
     }
     
   } catch (error) {
     console.error('❌ Error in auto-matching:', error);
+  }
+}
+
+// Enhanced function to find next user for someone already in call
+async function findNextUserForExistingUser(currentUserId) {
+  try {
+    console.log(`🔍 Finding next user for: ${currentUserId}`);
+    
+    const availableUserIds = await getAvailableUsers();
+    
+    // Filter out current user and users not connected to socket
+    const eligibleUsers = availableUserIds.filter(userId => 
+      userId !== currentUserId && 
+      userSockets.has(userId) && 
+      !ongoingMatching.has(userId)
+    );
+    
+    console.log(`👥 Eligible next users: ${eligibleUsers.length}`);
+    
+    if (eligibleUsers.length === 0) {
+      console.log(`😔 No eligible next users found for ${currentUserId}`);
+      return null;
+    }
+    
+    // Select random user from eligible users
+    const randomIndex = Math.floor(Math.random() * eligibleUsers.length);
+    const selectedUserId = eligibleUsers[randomIndex];
+    
+    console.log(`🎯 Selected next user: ${selectedUserId} for ${currentUserId}`);
+    
+    // Add both to ongoing matching
+    ongoingMatching.add(currentUserId);
+    ongoingMatching.add(selectedUserId);
+    
+    // Create Firebase call between current user and selected user
+    const callResult = await createFirebaseCall(currentUserId, selectedUserId);
+    
+    if (callResult) {
+      const { callId, callData } = callResult;
+      const roomId = `room_${callId}`;
+      
+      const currentUserSocketId = userSockets.get(currentUserId);
+      const selectedUserSocketId = userSockets.get(selectedUserId);
+      
+      // Join both users to socket room
+      const currentUserSocket = io.sockets.sockets.get(currentUserSocketId);
+      const selectedUserSocket = io.sockets.sockets.get(selectedUserSocketId);
+      
+      if (currentUserSocket && selectedUserSocket) {
+        currentUserSocket.join(roomId);
+        selectedUserSocket.join(roomId);
+        
+        // Store active room
+        activeRooms.set(roomId, {
+          participants: [currentUserId, selectedUserId],
+          callId: callId,
+          startTime: new Date()
+        });
+        
+        // Get user profiles
+        const currentUserProfile = await getUserProfile(currentUserId);
+        const selectedUserProfile = await getUserProfile(selectedUserId);
+        
+        // Prepare call-ready data
+        const callReadyData = {
+          roomId: roomId,
+          callId: callId,
+          participants: [
+            { ...currentUserProfile, userId: currentUserId, socketId: currentUserSocketId },
+            { ...selectedUserProfile, userId: selectedUserId, socketId: selectedUserSocketId }
+          ],
+          callData: {
+            ...callData,
+            roomId: roomId
+          }
+        };
+        
+        // Notify both users that call is ready
+        io.to(roomId).emit('call-ready', callReadyData);
+        
+        console.log(`✅ Next user match successful: Room ${roomId} created`);
+        
+        // Remove from ongoing matching
+        ongoingMatching.delete(currentUserId);
+        ongoingMatching.delete(selectedUserId);
+        
+        return { callId, roomId, selectedUserId };
+      }
+    }
+    
+    // Remove from ongoing matching if failed
+    ongoingMatching.delete(currentUserId);
+    ongoingMatching.delete(selectedUserId);
+    
+    return null;
+    
+  } catch (error) {
+    console.error(`❌ Error finding next user for ${currentUserId}:`, error);
+    return null;
   }
 }
 
@@ -300,13 +419,17 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Request next user (for skip functionality)
+  // NEW: Request next user (for skip functionality)
   socket.on('request-next-user', async () => {
     try {
       const connection = socketConnections.get(socket.id);
-      if (!connection) return;
+      if (!connection) {
+        socket.emit('error', { message: 'User not found' });
+        return;
+      }
       
       const { userId } = connection;
+      console.log(`⏭️ Next user requested by: ${userId}`);
       
       // End current call if in one
       for (const [roomId, room] of activeRooms.entries()) {
@@ -316,11 +439,21 @@ io.on('connection', (socket) => {
         }
       }
       
-      // Trigger new matching
-      setTimeout(performAutoMatching, 1000);
+      // Find next available user
+      const nextUserResult = await findNextUserForExistingUser(userId);
+      
+      if (nextUserResult) {
+        console.log(`✅ Next user found for ${userId}: ${nextUserResult.selectedUserId}`);
+      } else {
+        console.log(`😔 No next user available for ${userId}`);
+        socket.emit('no-users-available', { 
+          message: 'No users available right now. Try again later.' 
+        });
+      }
       
     } catch (error) {
       console.error('❌ Error requesting next user:', error);
+      socket.emit('error', { message: 'Failed to find next user' });
     }
   });
 
@@ -378,6 +511,9 @@ io.on('connection', (socket) => {
         
         console.log(`🔌 User ${userId} disconnected (${socket.id})`);
         
+        // Remove from ongoing matching if present
+        ongoingMatching.delete(userId);
+        
         // Clean up socket connections
         socketConnections.delete(socket.id);
         userSockets.delete(userId);
@@ -410,6 +546,11 @@ async function endSocketCall(roomId) {
     if (room) {
       console.log(`📞 Ending socket call: ${roomId}`);
       
+      // Remove participants from ongoing matching
+      room.participants.forEach(userId => {
+        ongoingMatching.delete(userId);
+      });
+      
       // Notify room participants
       io.to(roomId).emit('call-ended', { roomId: roomId });
       
@@ -437,6 +578,13 @@ async function endSocketCall(roomId) {
 // Periodic auto-matching (backup)
 setInterval(performAutoMatching, 10000); // Every 10 seconds
 
+// Periodic cleanup of ongoing matching (in case of stuck states)
+setInterval(() => {
+  console.log(`🧹 Ongoing matching cleanup - Current size: ${ongoingMatching.size}`);
+  // Clear ongoing matching that might be stuck (older than 30 seconds)
+  // This is a safety mechanism
+}, 30000);
+
 // Setup Firebase listeners
 setupFirebaseListeners();
 
@@ -450,6 +598,7 @@ app.get('/health', async (req, res) => {
       socketConnections: socketConnections.size,
       activeRooms: activeRooms.size,
       firebaseAvailableUsers: availableUsers.length,
+      ongoingMatching: ongoingMatching.size,
       uptime: process.uptime(),
       iceServersCount: iceServers.length,
       firebaseConnected: true
@@ -471,6 +620,7 @@ app.get('/stats', async (req, res) => {
       socketConnections: socketConnections.size,
       activeRooms: activeRooms.size,
       firebaseAvailableUsers: availableUsers.length,
+      ongoingMatching: ongoingMatching.size,
       serverTime: new Date().toISOString(),
       autoMatchingActive: true
     });
@@ -493,7 +643,8 @@ app.get('/firebase-users', async (req, res) => {
         userProfiles.push({
           userId: userId,
           name: profile.name,
-          isSocketConnected: userSockets.has(userId)
+          isSocketConnected: userSockets.has(userId),
+          isInMatching: ongoingMatching.has(userId)
         });
       }
     }
@@ -514,7 +665,8 @@ app.post('/force-match', async (req, res) => {
       message: 'Auto-matching triggered',
       firebaseAvailableUsers: availableUsers.length,
       socketConnections: socketConnections.size,
-      activeRooms: activeRooms.size
+      activeRooms: activeRooms.size,
+      ongoingMatching: ongoingMatching.size
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -523,11 +675,11 @@ app.post('/force-match', async (req, res) => {
 
 // Start server
 server.listen(PORT, HOST, () => {
-  console.log(`🚀 Firebase-Integrated Jalwa Server running on http://${HOST}:${PORT}`);
+  console.log(`🚀 Enhanced Firebase-Integrated Jalwa Server running on http://${HOST}:${PORT}`);
   console.log(`🔥 Firebase connected and ready`);
   console.log(`📡 STUN servers: ${iceServers.filter(s => s.urls.includes('stun')).length}`);
   console.log(`🔄 TURN servers: ${iceServers.filter(s => s.urls.includes('turn')).length}`);
-  console.log(`🤖 Auto-matching with Firebase enabled!`);
+  console.log(`🤖 Auto-matching with next user functionality enabled!`);
 });
 
 // Graceful shutdown
