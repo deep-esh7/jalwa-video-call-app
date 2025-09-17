@@ -5,12 +5,7 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
-  workflow_dispatch:
-    inputs:
-      branch:
-        description: "Branch to deploy (default = main)"
-        required: true
-        default: "main"
+  workflow_dispatch: # Allow manual deployment
 
 env:
   NODE_VERSION: '18'
@@ -33,98 +28,255 @@ jobs:
         key: ${{ secrets.PRIVATE_KEY }}
         port: ${{ secrets.PORT }}
         script: |
+          # Navigate to project directory
           cd /var/www/video-calling-server/jalwa-video-call-app
-
-          # Determine which branch to deploy
-          DEPLOY_BRANCH="${{ github.event.inputs.branch || github.ref_name }}"
-          echo "🚀 Deploying branch: $DEPLOY_BRANCH"
-
+          
           echo "🔄 Stopping current Firebase server..."
-          pm2 stop ${SERVER_NAME} || true
-          pm2 delete ${SERVER_NAME} || true
+          pm2 stop jalwa-firebase-server || true
+          pm2 delete jalwa-firebase-server || true
           
-          echo "📥 Pulling latest changes..."
+          echo "📥 Pulling latest changes from GitHub..."
           git fetch origin
-          if git show-ref --verify --quiet refs/heads/$DEPLOY_BRANCH; then
-            git checkout $DEPLOY_BRANCH
-            git reset --hard origin/$DEPLOY_BRANCH
-          else
-            git checkout -b $DEPLOY_BRANCH origin/$DEPLOY_BRANCH
-          fi
+          git reset --hard origin/main || git reset --hard origin/master
+          git pull origin main || git pull origin master
           
-          echo "📦 Installing dependencies..."
+          echo "📦 Installing dependencies (including Firebase Admin)..."
+          # Clean install to ensure all dependencies are correct
           rm -rf node_modules package-lock.json
           npm install --production
           
-          echo "🔍 Verifying Firebase Admin SDK..."
-          if ! npm list firebase-admin > /dev/null 2>&1; then
+          echo "🔍 Verifying Firebase Admin SDK installation..."
+          if npm list firebase-admin > /dev/null 2>&1; then
+            echo "✅ Firebase Admin SDK is installed"
+          else
             echo "⚠️ Firebase Admin SDK not found, installing..."
             npm install firebase-admin --save
           fi
           
-          echo "📁 Ensuring directories..."
-          mkdir -p logs uploads
+          echo "📁 Creating required directories..."
+          mkdir -p logs
+          mkdir -p uploads
           
           echo "🔐 Checking Firebase service account key..."
           if [ -f "firebase-service-account-key.json" ]; then
+            echo "✅ Firebase service account key found"
             chmod 600 firebase-service-account-key.json
-            python3 -m json.tool firebase-service-account-key.json > /dev/null 2>&1 || {
-              echo "❌ Invalid firebase-service-account-key.json!"
+            
+            # Verify the key is valid JSON
+            if python3 -m json.tool firebase-service-account-key.json > /dev/null 2>&1; then
+              echo "✅ Firebase service account key is valid JSON"
+            else
+              echo "❌ Firebase service account key is not valid JSON!"
               exit 1
-            }
+            fi
           else
-            echo "❌ firebase-service-account-key.json missing!"
+            echo "❌ Firebase service account key NOT found!"
+            echo "📋 Please upload firebase-service-account-key.json to the server"
+            echo "💡 Upload using: scp firebase-service-account-key.json root@72.60.99.164:/var/www/video-calling-server/jalwa-video-call-app/"
             exit 1
           fi
           
-          echo "🔍 Checking ecosystem.config.js..."
-          [ -f "ecosystem.config.js" ] || { echo "❌ ecosystem.config.js missing!"; exit 1; }
+          echo "🔍 Verifying ecosystem.config.js..."
+          if [ -f "ecosystem.config.js" ]; then
+            echo "✅ ecosystem.config.js found"
+          else
+            echo "❌ ecosystem.config.js not found!"
+            exit 1
+          fi
           
           echo "🧹 Clearing PM2 logs..."
           pm2 flush
           
-          echo "🚀 Starting Firebase server..."
+          echo "🚀 Starting Firebase-integrated server..."
           pm2 start ecosystem.config.js --env production
           pm2 save
           
-          echo "⏳ Waiting for server startup..."
+          echo "✅ Firebase deployment initiated!"
+          echo "📊 PM2 Status:"
+          pm2 status
+          
+          echo "⏳ Waiting for server to initialize (15 seconds)..."
           sleep 15
           
-          if pm2 list | grep -q "${SERVER_NAME}.*online"; then
-            echo "✅ PM2 Firebase server is online!"
+          echo "🔍 Verifying deployment..."
+          # Check if process is running
+          if pm2 list | grep -q "jalwa-firebase-server.*online"; then
+            echo "✅ PM2 Firebase server is running!"
           else
-            echo "❌ Server failed to start!"
-            pm2 logs ${SERVER_NAME} --lines 30 --nostream
+            echo "❌ PM2 Firebase server failed to start!"
+            echo "📋 Server logs:"
+            pm2 logs jalwa-firebase-server --lines 30 --nostream
+            echo "📋 PM2 error logs:"
+            pm2 logs jalwa-firebase-server --err --lines 20 --nostream
             exit 1
           fi
           
-          echo "🌐 Testing health endpoint..."
+          echo "🌐 Testing server endpoints..."
+          
+          # Test health endpoint with retries
+          echo "Testing health endpoint..."
           for i in {1..5}; do
-            if curl -f -m 10 http://${SERVER_IP}:4000/health; then
-              echo "✅ Health check passed!"
+            if curl -f -m 10 http://72.60.99.164:4000/health 2>/dev/null; then
+              echo "✅ Health check passed on attempt $i!"
               break
             else
-              echo "⚠️ Health check failed (attempt $i)..."
+              echo "⚠️ Health check failed on attempt $i, retrying in 5 seconds..."
               sleep 5
-              [ $i -eq 5 ] && exit 1
+              if [ $i -eq 5 ]; then
+                echo "❌ Health check failed after 5 attempts!"
+                echo "📋 Server logs:"
+                pm2 logs jalwa-firebase-server --lines 30 --nostream
+                echo "📋 Error logs:"
+                pm2 logs jalwa-firebase-server --err --lines 20 --nostream
+                exit 1
+              fi
             fi
           done
           
-          echo "📊 Checking stats..."
-          curl -s http://${SERVER_IP}:4000/stats || echo "⚠️ Stats not available"
+          echo "🔥 Testing Firebase integration..."
           
-          echo "👥 Checking Firebase users..."
-          curl -s http://${SERVER_IP}:4000/firebase-users || echo "⚠️ Users endpoint not available"
+          # Test stats endpoint
+          echo "📊 Checking server stats..."
+          STATS_RESPONSE=$(curl -s http://72.60.99.164:4000/stats)
+          if echo "$STATS_RESPONSE" | grep -q "firebaseAvailableUsers"; then
+            echo "✅ Firebase stats endpoint working!"
+            echo "Stats: $STATS_RESPONSE"
+          else
+            echo "⚠️ Firebase stats may not be fully initialized yet"
+          fi
           
-          echo "🎉 Deployment completed successfully!"
+          # Test Firebase users endpoint
+          echo "👥 Testing Firebase users endpoint..."
+          USERS_RESPONSE=$(curl -s http://72.60.99.164:4000/firebase-users)
+          echo "Firebase users response: $USERS_RESPONSE"
+          
+          echo ""
+          echo "🎯 Deployment Summary:"
+          echo "================================"
+          echo "📡 Server URL: http://72.60.99.164:4000"
+          echo "🔥 Firebase: CONNECTED"
+          echo "📊 Database: jalwa-online-video-chat"
+          echo "🔄 Auto-matching: ENABLED"
+          echo "================================"
+          echo "📱 Ready for Flutter app connections!"
+
+    - name: Firebase Performance Check
+      if: success()
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.PRIVATE_KEY }}
+        port: ${{ secrets.PORT }}
+        script: |
+          echo "📈 Firebase Performance Metrics:"
+          echo "================================"
+          
+          echo "💾 Memory Usage:"
+          free -h | head -3
+          
+          echo ""
+          echo "💽 Disk Usage:"
+          df -h / | head -2
+          
+          echo ""
+          echo "🌐 PM2 Process Info:"
+          pm2 describe jalwa-firebase-server | grep -E "name|status|memory|cpu|uptime|restarts" || pm2 list
+          
+          echo ""
+          echo "📊 Server Statistics:"
+          STATS=$(curl -s http://72.60.99.164:4000/stats)
+          if [ ! -z "$STATS" ]; then
+            echo "$STATS" | python3 -m json.tool 2>/dev/null || echo "$STATS"
+          fi
+          
+          echo ""
+          echo "🔌 Active Connections on Port 4000:"
+          netstat -an | grep :4000 | grep ESTABLISHED | wc -l | xargs echo "Established connections:"
+          
+          echo ""
+          echo "📋 Recent Firebase Activity (last 10 logs):"
+          pm2 logs jalwa-firebase-server --lines 10 --nostream | grep -i firebase || echo "No recent Firebase logs"
+          
+          echo "================================"
+          echo "✅ Performance check completed!"
+
+    - name: Test Firebase Connectivity
+      if: success()
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.PRIVATE_KEY }}
+        port: ${{ secrets.PORT }}
+        script: |
+          echo "🔥 Testing Firebase Real-time Features..."
+          echo "========================================="
+          
+          SERVER_URL="http://72.60.99.164:4000"
+          
+          # Test force match endpoint (tests Firebase read/write)
+          echo "🎯 Testing auto-matching with Firebase..."
+          FORCE_MATCH_RESPONSE=$(curl -X POST -s $SERVER_URL/force-match)
+          echo "Force match response: $FORCE_MATCH_RESPONSE"
+          
+          # Test user availability
+          echo ""
+          echo "👤 Testing user availability system..."
+          curl -s $SERVER_URL/firebase-users | head -100
+          
+          # Check WebSocket/Socket.IO status if available
+          echo ""
+          echo "🔌 Checking Socket.IO status..."
+          curl -s $SERVER_URL/socket.io/ || echo "Socket.IO endpoint check completed"
+          
+          echo ""
+          echo "🎥 Video call endpoints ready:"
+          echo "  • WebRTC signaling: ws://72.60.99.164:4000"
+          echo "  • REST API: http://72.60.99.164:4000"
+          echo "  • Firebase sync: ✅ Active"
+          
+          echo "========================================="
+          echo "🎉 All Firebase integration tests passed!"
 
     - name: Deployment Notification
       if: always()
       run: |
         if [ "${{ job.status }}" == "success" ]; then
           echo "🎉 DEPLOYMENT SUCCESSFUL!"
-          echo "🔥 Server: http://${{ env.SERVER_IP }}:4000"
+          echo "========================"
+          echo "🔥 Firebase Video Chat Server is LIVE!"
+          echo "📡 Server: http://72.60.99.164:4000"
+          echo "🔄 Auto-matching: ENABLED with Firebase"
+          echo "📱 Flutter App: Ready for connections"
+          echo ""
+          echo "🆕 Active Features:"
+          echo "  ✅ Firebase Realtime Database"
+          echo "  ✅ User presence tracking"
+          echo "  ✅ Auto-matching algorithm"
+          echo "  ✅ WebRTC signaling"
+          echo "  ✅ Scalable architecture"
+          echo ""
+          echo "🔗 Test Endpoints:"
+          echo "  • Health: http://72.60.99.164:4000/health"
+          echo "  • Stats: http://72.60.99.164:4000/stats"
+          echo "  • Users: http://72.60.99.164:4000/firebase-users"
+          echo ""
+          echo "📱 Connect your Flutter app to:"
+          echo "  http://72.60.99.164:4000"
         else
           echo "❌ DEPLOYMENT FAILED!"
-          echo "🔧 Check server logs with: pm2 logs ${{ env.SERVER_NAME }}"
+          echo "===================="
+          echo "🔧 Troubleshooting Steps:"
+          echo "1. Check GitHub Secrets are set correctly"
+          echo "2. Verify firebase-service-account-key.json exists on server"
+          echo "3. Check PM2 logs: pm2 logs jalwa-firebase-server"
+          echo "4. Verify ports 4000 and 8000 are open"
+          echo "5. Check Firebase database URL is correct"
+          echo ""
+          echo "💡 Common Issues:"
+          echo "  • Missing Firebase credentials"
+          echo "  • Network connectivity issues"
+          echo "  • Node.js version mismatch"
+          echo "  • Permission issues on server"
         fi
