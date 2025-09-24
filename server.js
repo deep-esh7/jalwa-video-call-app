@@ -16,7 +16,8 @@ const io = socketIo(server, {
 });
 
 const PORT = 4000;
-const HOST = '72.60.99.164';
+// const HOST = '72.60.99.164';
+const HOST = '0.0.0.0';
 
 // Initialize Firebase Admin SDK
 const serviceAccount = require('./firebase-service-account-key.json');
