@@ -1,67 +1,41 @@
 {
-  "name": "jalwa-firebase-video-server",
+  "name": "jalwa-video-server",
   "version": "2.1.0",
-  "description": "Firebase-Integrated P2P WebRTC Video Chat Server",
+  "description": "P2P WebRTC Video Chat Server",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start:local": "NODE_ENV=local node server.js",
+    "start:dev": "NODE_ENV=development node server.js",
+    "start:prod": "NODE_ENV=production node server.js",
     "dev": "nodemon server.js",
     "pm2:start": "pm2 start ecosystem.config.js --env production",
-    "pm2:start:dev": "pm2 start ecosystem.config.js --env development",
-    "pm2:stop": "pm2 stop jalwa-firebase-server",
-    "pm2:restart": "pm2 restart jalwa-firebase-server",
-    "pm2:reload": "pm2 reload jalwa-firebase-server",
-    "pm2:logs": "pm2 logs jalwa-firebase-server",
-    "pm2:logs:error": "pm2 logs jalwa-firebase-server --err",
-    "pm2:monit": "pm2 monit jalwa-firebase-server",
+    "pm2:stop": "pm2 stop jalwa-server",
+    "pm2:restart": "pm2 restart jalwa-server",
+    "pm2:reload": "pm2 reload jalwa-server",
+    "pm2:logs": "pm2 logs jalwa-server",
+    "pm2:logs:error": "pm2 logs jalwa-server --err",
+    "pm2:monit": "pm2 monit",
     "pm2:status": "pm2 status",
     "pm2:flush": "pm2 flush",
     "pm2:save": "pm2 save",
-    "test:health": "curl -f http://localhost:4000/health",
-    "test:stats": "curl -s http://localhost:4000/stats",
-    "test:firebase": "curl -s http://localhost:4000/firebase-users",
-    "deploy:prod": "pm2 start ecosystem.config.js --env production && pm2 save",
-    "setup:firebase": "echo 'Please add your firebase-service-account-key.json file to the project root'"
+    "test:health": "curl -f http://localhost:4000/health"
   },
-  "keywords": [
-    "webrtc",
-    "video-calling",
-    "p2p",
-    "socket.io",
-    "firebase",
-    "realtime-database",
-    "auto-connect",
-    "chatroulette",
-    "instant-matching",
-    "real-time",
-    "flutter",
-    "mobile"
-  ],
-  "author": "Deep Esh",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/deep-esh7/jalwa-video-call-app.git"
-  },
-  "bugs": {
-    "url": "https://github.com/deep-esh7/jalwa-video-call-app/issues"
-  },
-  "homepage": "https://github.com/deep-esh7/jalwa-video-call-app#readme",
   "dependencies": {
-    "express": "^4.18.2",
-    "socket.io": "^4.7.4",
+    "@prisma/client": "^6.16.2",
     "cors": "^2.8.5",
-    "firebase-admin": "^12.0.0"
+    "dotenv": "^17.2.2",
+    "express": "^4.18.2",
+    "ioredis": "^5.8.0",
+    "socket.io": "^4.7.4",
+    "winston": "^3.17.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "nodemon": "^3.0.2",
+    "prisma": "^6.16.2",
+    "socket.io-client": "^4.8.1"
   },
   "engines": {
     "node": ">=16.0.0",
     "npm": ">=8.0.0"
-  },
-  "config": {
-    "port": 4000,
-    "host": "72.60.99.164"
   }
 }

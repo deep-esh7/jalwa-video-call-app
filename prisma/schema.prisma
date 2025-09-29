@@ -1,0 +1,89 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String?  @unique       
+  photoURL  String?                
+  gender    String
+  role      String
+  phone     String?                
+  createdAt DateTime @default(now())
+  updatedAt DateTime? @updatedAt    
+  
+
+  wallet        Wallet?
+  callsMade     Call[]   @relation("Caller")
+  callsReceived Call[]   @relation("Receiver")
+
+  transactions   Transaction[]
+  giftsSent      GiftTransaction[] @relation("Sender")
+  giftsReceived  GiftTransaction[] @relation("Receiver")
+  withdrawals    Withdrawal[]
+}
+
+
+model Wallet {
+  id        String   @id @default(uuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String   @unique
+  balance   Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model Transaction {
+  id        String   @id @default(uuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  type      String
+  amount    Int
+  status    String
+  createdAt DateTime @default(now())
+}
+
+model Call {
+  id          String   @id @default(uuid())
+  caller      User     @relation("Caller", fields: [callerId], references: [id])
+  callerId    String
+  receiver    User     @relation("Receiver", fields: [receiverId], references: [id])
+  receiverId  String
+  status      String
+  startTime   DateTime @default(now())
+  endTime     DateTime?
+  totalCoins  Int      @default(0)
+}
+
+model Gift {
+  id       String @id @default(uuid())
+  name     String
+  cost     Int
+  sent     GiftTransaction[]
+}
+
+model GiftTransaction {
+  id         String @id @default(uuid())
+  sender     User   @relation("Sender", fields: [senderId], references: [id])
+  senderId   String
+  receiver   User   @relation("Receiver", fields: [receiverId], references: [id])
+  receiverId String
+  gift       Gift   @relation(fields: [giftId], references: [id])
+  giftId     String
+  coinsSpent Int
+  createdAt  DateTime @default(now())
+}
+
+model Withdrawal {
+  id        String   @id @default(uuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  coins     Int
+  status    String
+  createdAt DateTime @default(now())
+}

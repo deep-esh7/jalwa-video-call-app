@@ -2,10 +2,10 @@ name: Deploy Jalwa Firebase Video Chat Server
 
 on:
   push:
-    branches: ['**']  # This will match all branches
+    branches: [main]  # Auto-deploy only on main branch
   pull_request:
-    branches: ['**']  # This will match all branches
-  workflow_dispatch:  # Allow manual deployment
+    branches: ['**']  # Allow PRs from any branch
+  workflow_dispatch:  # Allow manual deployment from any branch
 
 env:
   NODE_VERSION: '18'

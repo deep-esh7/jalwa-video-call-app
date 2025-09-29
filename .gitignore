@@ -119,3 +119,5 @@ dist/
 # Temp files
 .temp/
 .tmp/
+
+/generated/prisma
