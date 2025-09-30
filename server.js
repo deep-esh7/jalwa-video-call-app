@@ -8,6 +8,16 @@ const Redis = require('ioredis');
 const winston = require('winston');
 const fs = require('fs');
 const path = require('path');
+const admin = require('firebase-admin');
+const serviceAccount = require('./firebase-service-account-key.json');
+const verifyToken = require('./middleware/firebaseAuth');
+
+// Initialize Firebase Admin
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+  });
+}
 
 // =============================
 // Config
@@ -459,6 +469,81 @@ app.get('/api/users/:id', async (req, res) => {
   }
 });
 
+
+/**
+ * @route GET /api/user/me
+ * @desc Get current user's data
+ * @access Private (requires valid Firebase token)
+ */
+app.get('/api/user/me', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    
+    // Get user data from Firebase
+    const userRecord = await admin.auth().getUser(userId);
+    
+    logger.info(`✅ Fetched user profile: ${userRecord}`);
+    
+    res.json({
+      success: true,
+      data: {
+        uid: userRecord.uid,
+        email: userRecord.email,
+        emailVerified: userRecord.emailVerified,
+        displayName: userRecord.displayName,
+        photoURL: userRecord.photoURL,
+        phoneNumber: userRecord.phoneNumber,
+        // Include additional user data from your database here
+        // ...userData
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching user data:', error);
+    res.status(400).json({
+      success: false,
+      message: 'Error fetching user data',
+      error: error.message
+    });
+  }
+});
+
+
+app.get('/api/user/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // log the request here 
+    logger.info(`fetch user profile: ${userId}`);
+    
+    // Get user data from Firebase
+    const userRecord = await admin.auth().getUser(userId);
+    
+    // Get public user data from your database if needed
+    // const userData = await prisma.user.findUnique({ 
+    //   where: { id: userId },
+    //   select: { /* public fields only */ }
+    // });
+    
+    res.json({
+      success: true,
+      data: {
+        uid: userRecord.uid,
+        displayName: userRecord.displayName,
+        photoURL: userRecord.photoURL,
+        // Include public user data from your database here
+        // ...userData
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching user data:', error);
+    res.status(400).json({
+      success: false,
+      message: 'Error fetching user data',
+      error: error.message
+    });
+  }
+});
+
 app.get('/health', async (req, res) => {
    try { 
     const availableUsers = await getAvailableUsers(); 
@@ -483,43 +568,43 @@ app.get('/health', async (req, res) => {
 
 
 // Sync (upsert) a user
-app.post('/api/users/sync', async (req, res) => {
-  try {
-    const { uid, name, email, photoURL, gender, role, phone } = req.body;
+// app.post('/api/users/sync', async (req, res) => {
+//   try {
+//     const { uid, name, email, photoURL, gender, role, phone } = req.body;
 
-    if (!uid) {
-      return res.status(400).json({ error: 'uid is required' });
-    }
+//     if (!uid) {
+//       return res.status(400).json({ error: 'uid is required' });
+//     }
 
-    const user = await prisma.user.upsert({
-      where: { id: uid },
-      update: {
-        name,
-        email,
-        photoURL,
-        phone,
-        updatedAt: new Date(),
-      },
-      create: {
-        id: uid,
-        name: name || `User ${uid}`,
-        email,
-        photoURL,
-        gender: gender || 'MALE',
-        role: role && role.toUpperCase() === 'ADMIN' ? 'ADMIN' : 'USER', // prevent privilege escalation
-        phone,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-    });
+//     const user = await prisma.user.upsert({
+//       where: { id: uid },
+//       update: {
+//         name,
+//         email,
+//         photoURL,
+//         phone,
+//         updatedAt: new Date(),
+//       },
+//       create: {
+//         id: uid,
+//         name: name || `User ${uid}`,
+//         email,
+//         photoURL,
+//         gender: gender || 'MALE',
+//         role: role && role.toUpperCase() === 'ADMIN' ? 'ADMIN' : 'USER', // prevent privilege escalation
+//         phone,
+//         createdAt: new Date(),
+//         updatedAt: new Date(),
+//       },
+//     });
 
-    logger.info(`✅ Synced user profile: ${uid}`);
-    return res.json(user);
-  } catch (err) {
-    logger.error(`❌ Failed to sync user: ${err.message}`);
-    return res.status(500).json({ error: 'Failed to sync user' });
-  }
-});
+//     logger.info(`✅ Synced user profile: ${uid}`);
+//     return res.json(user);
+//   } catch (err) {
+//     logger.error(`❌ Failed to sync user: ${err.message}`);
+//     return res.status(500).json({ error: 'Failed to sync user' });
+//   }
+// });
 
 
 // =============================
