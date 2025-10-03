@@ -8,27 +8,25 @@ generator client {
 }
 
 model User {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   name      String
-  email     String?  @unique       
-  photoURL  String?                
+  email     String?   @unique
+  photoURL  String?
   gender    String
   role      String
-  phone     String?                
-  createdAt DateTime @default(now())
-  updatedAt DateTime? @updatedAt    
-  
+  phone     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime? @updatedAt
 
   wallet        Wallet?
-  callsMade     Call[]   @relation("Caller")
-  callsReceived Call[]   @relation("Receiver")
+  callsMade     Call[]  @relation("Caller")
+  callsReceived Call[]  @relation("Receiver")
 
-  transactions   Transaction[]
-  giftsSent      GiftTransaction[] @relation("Sender")
-  giftsReceived  GiftTransaction[] @relation("Receiver")
-  withdrawals    Withdrawal[]
+  transactions  Transaction[]
+  giftsSent     GiftTransaction[] @relation("Sender")
+  giftsReceived GiftTransaction[] @relation("Receiver")
+  withdrawals   Withdrawal[]
 }
-
 
 model Wallet {
   id        String   @id @default(uuid())
@@ -49,31 +47,31 @@ model Transaction {
 }
 
 model Call {
-  id          String   @id @default(uuid())
-  caller      User     @relation("Caller", fields: [callerId], references: [id])
-  callerId    String
-  receiver    User     @relation("Receiver", fields: [receiverId], references: [id])
-  receiverId  String
-  status      String
-  startTime   DateTime @default(now())
-  endTime     DateTime?
-  totalCoins  Int      @default(0)
+  id         String    @id @default(uuid())
+  caller     User      @relation("Caller", fields: [callerId], references: [id])
+  callerId   String
+  receiver   User      @relation("Receiver", fields: [receiverId], references: [id])
+  receiverId String
+  status     String
+  startTime  DateTime  @default(now())
+  endTime    DateTime?
+  totalCoins Int       @default(0)
 }
 
 model Gift {
-  id       String @id @default(uuid())
-  name     String
-  cost     Int
-  sent     GiftTransaction[]
+  id   String            @id @default(uuid())
+  name String
+  cost Int
+  sent GiftTransaction[]
 }
 
 model GiftTransaction {
-  id         String @id @default(uuid())
-  sender     User   @relation("Sender", fields: [senderId], references: [id])
+  id         String   @id @default(uuid())
+  sender     User     @relation("Sender", fields: [senderId], references: [id])
   senderId   String
-  receiver   User   @relation("Receiver", fields: [receiverId], references: [id])
+  receiver   User     @relation("Receiver", fields: [receiverId], references: [id])
   receiverId String
-  gift       Gift   @relation(fields: [giftId], references: [id])
+  gift       Gift     @relation(fields: [giftId], references: [id])
   giftId     String
   coinsSpent Int
   createdAt  DateTime @default(now())

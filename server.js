@@ -477,9 +477,13 @@ app.get('/api/users/:id', async (req, res) => {
  */
 app.get('/api/user/me', async (req, res) => {
   try {
+    logger.info('Received request to /api/user/me');
+    
     const authHeader = req.headers.authorization;
+    logger.debug('Auth header:', authHeader ? 'Present' : 'Missing');
     
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      logger.warn('No Bearer token provided');
       return res.status(401).json({ 
         success: false, 
         message: 'No token provided' 
@@ -487,32 +491,55 @@ app.get('/api/user/me', async (req, res) => {
     }
 
     const idToken = authHeader.split('Bearer ')[1];
-    const { getUserFromToken } = require('./middleware/firebaseAuth');
+    logger.debug('Extracted token');
     
-    // This will verify the token and get/create user in one step
-    const user = await getUserFromToken(idToken);
-    
-    logger.info(`✅ Fetched/created user: ${user.id}`);
-    
-    res.json({
-      success: true,
-      data: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        photoURL: user.photoURL,
-        phoneNumber: user.phoneNumber,
-        gender: user.gender,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt
+    try {
+      const { getUserFromToken } = require('./middleware/firebaseAuth');
+      logger.debug('Getting user from token...');
+      
+      // This will verify the token and get/create user in one step
+      const user = await getUserFromToken(idToken);
+      
+      if (!user) {
+        throw new Error('Failed to get or create user');
       }
-    });
+      
+      logger.info(`✅ Fetched/created user: ${user.id}`);
+      
+      return res.json({
+        success: true,
+        data: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          photoURL: user.photoURL,
+          phoneNumber: user.phoneNumber,
+          gender: user.gender,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt
+        }
+      });
+    } catch (authError) {
+      logger.error('Auth error in /api/user/me:', {
+        error: authError.message,
+        stack: authError.stack
+      });
+      throw authError;
+    }
   } catch (error) {
-    logger.error(`❌ Error in /api/user/me: ${error.message}`);
-    res.status(401).json({
+    logger.error(`❌ Error in /api/user/me: ${error.message}`, {
+      stack: error.stack,
+      name: error.name,
+      code: error.code
+    });
+    
+    const statusCode = error.statusCode || 401;
+    res.status(statusCode).json({
       success: false,
       message: 'Authentication failed',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' 
+        ? 'Authentication error' 
+        : error.message
     });
   }
 });

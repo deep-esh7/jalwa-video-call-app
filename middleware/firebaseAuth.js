@@ -1,13 +1,5 @@
 const admin = require('firebase-admin');
 const { PrismaClient } = require('@prisma/client');
-const serviceAccount = require('../firebase-service-account-key.json');
-
-// Initialize Firebase Admin if it hasn't been initialized yet
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-  });
-}
 
 // Verify and decode Firebase token
 const verifyAndDecodeToken = async (idToken) => {
@@ -64,8 +56,9 @@ const getUserFromToken = async (idToken) => {
           name: decodedToken.name || 'Anonymous',
           email: decodedToken.email || null,
           photoURL: decodedToken.picture || null,
-          phoneNumber: decodedToken.phone_number || null,
+          phone: decodedToken.phone_number || null,
           gender: 'unspecified',
+          role: 'user',
           createdAt: new Date(),
           updatedAt: new Date()
         }
