@@ -471,37 +471,47 @@ app.get('/api/users/:id', async (req, res) => {
 
 
 /**
- * @route GET /api/user/me
- * @desc Get current user's data
- * @access Private (requires valid Firebase token)
+ * @route   GET /api/user/me
+ * @desc    Get current user profile, create user in database if not exists
+ * @access  Private (requires valid Firebase token)
  */
-app.get('/api/user/me', verifyToken, async (req, res) => {
+app.get('/api/user/me', async (req, res) => {
   try {
-    const userId = req.user.uid;
+    const authHeader = req.headers.authorization;
     
-    // Get user data from Firebase
-    const userRecord = await admin.auth().getUser(userId);
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'No token provided' 
+      });
+    }
+
+    const idToken = authHeader.split('Bearer ')[1];
+    const { getUserFromToken } = require('./middleware/firebaseAuth');
     
-    logger.info(`✅ Fetched user profile: ${userRecord}`);
+    // This will verify the token and get/create user in one step
+    const user = await getUserFromToken(idToken);
+    
+    logger.info(`✅ Fetched/created user: ${user.id}`);
     
     res.json({
       success: true,
       data: {
-        uid: userRecord.uid,
-        email: userRecord.email,
-        emailVerified: userRecord.emailVerified,
-        displayName: userRecord.displayName,
-        photoURL: userRecord.photoURL,
-        phoneNumber: userRecord.phoneNumber,
-        // Include additional user data from your database here
-        // ...userData
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        photoURL: user.photoURL,
+        phoneNumber: user.phoneNumber,
+        gender: user.gender,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
       }
     });
   } catch (error) {
-    console.error('Error fetching user data:', error);
-    res.status(400).json({
+    logger.error(`❌ Error in /api/user/me: ${error.message}`);
+    res.status(401).json({
       success: false,
-      message: 'Error fetching user data',
+      message: 'Authentication failed',
       error: error.message
     });
   }
