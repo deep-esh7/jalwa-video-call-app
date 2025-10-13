@@ -1,3 +1,6 @@
+// server.js (updated)
+// Full file - includes new socket events: toggle-matching, match-request, match-accepted, match-declined, no-users-available handling.
+
 require('dotenv').config({ path: `.env.${process.env.NODE_ENV || 'local'}` });
 
 const express = require('express');
@@ -102,21 +105,78 @@ const iceServers = [
 // Redis Helpers
 // =============================
 async function setUserAvailable(userId) {
+  const isMember = await redis.sismember('jalwa:available_users', userId);
+
+  if (isMember) {
+    // User is already marked as available, so skip re-adding
+    const currentStatus = await redis.get(`jalwa:user:${userId}:status`);
+    if (currentStatus !== 'online') {
+      await redis.set(`jalwa:user:${userId}:status`, 'online');
+      logger.info(`User ${userId} status corrected to online`);
+    } else {
+      logger.debug(`User ${userId} already available, skipping duplicate entry`);
+    }
+    return;
+  }
+
+  // Otherwise, add them to the available set
   await redis.sadd('jalwa:available_users', userId);
   await redis.set(`jalwa:user:${userId}:status`, 'online');
-  logger.info(`User ${userId} marked available`);
+  logger.info(`✅ User ${userId} marked available`);
 }
 
 async function setUserBusy(userId) {
-  await redis.srem('jalwa:available_users', userId);
+  const isMember = await redis.sismember('jalwa:available_users', userId);
+
+  if (!isMember) {
+    logger.debug(`User ${userId} already busy, skipping removal`);
+  } else {
+    await redis.srem('jalwa:available_users', userId);
+    logger.info(`User ${userId} removed from available list`);
+  }
+
   await redis.set(`jalwa:user:${userId}:status`, 'busy');
   logger.info(`User ${userId} marked busy`);
 }
 
+async function isAutoMatchingEnabled(userId) {
+  try {
+    const v = await redis.get(`jalwa:user:${userId}:auto_matching`);
+    // default is enabled unless explicitly 'false'
+    return v !== 'false';
+  } catch (e) {
+    logger.warn(`Failed to read auto-matching flag for ${userId}: ${e.message}`);
+    return true;
+  }
+}
+
 async function getAvailableUsers() {
   const users = await redis.smembers('jalwa:available_users');
-  const alive = users.filter((id) => userSockets.has(id));
-  const stale = users.filter((id) => !alive.includes(id));
+  // filter out sockets that are not connected and users who disabled auto-matching
+  const alive = [];
+  const stale = [];
+
+  for (const id of users) {
+    if (!userSockets.has(id)) {
+      stale.push(id);
+      continue;
+    }
+    // verify auto-matching preference
+    // users who explicitly turned off auto-matching should not be part of auto-match pool
+    // Note: getAvailableUsers is used by auto-matching — so respect auto_matching flag
+    // It's ok to await per-user here; for large scale you'd want a better approach
+    // (e.g., maintain a separate Redis set of auto-enabled users).
+    // For now this keeps correctness.
+    // eslint-disable-next-line no-await-in-loop
+    const enabled = await isAutoMatchingEnabled(id);
+    if (!enabled) {
+      // skip — but do not remove from available set: they might still be "available" but not auto-matchable
+      logger.debug(`User ${id} is available but auto-matching is disabled; filtering out.`);
+      continue;
+    }
+    alive.push(id);
+  }
+
   if (stale.length > 0) {
     await redis.srem('jalwa:available_users', ...stale);
     stale.forEach((id) => logger.warn(`Removed stale user from Redis: ${id}`));
@@ -124,6 +184,28 @@ async function getAvailableUsers() {
   return alive;
 }
 
+async function cleanupStaleCalls() {
+  const activeCalls = await prisma.call.findMany({ where: { status: 'active' } });
+  let cleaned = 0;
+
+  for (const call of activeCalls) {
+    const { callerId, receiverId } = call;
+    const callerConnected = userSockets.has(callerId);
+    const receiverConnected = userSockets.has(receiverId);
+
+    if (!callerConnected && !receiverConnected) {
+      await prisma.call.update({
+        where: { id: call.id },
+        data: { status: 'ended', endTime: new Date() },
+      });
+      cleaned++;
+    }
+  }
+
+  if (cleaned > 0) {
+    logger.warn(`🧹 Cleaned up ${cleaned} stale active calls`);
+  }
+}
 
 // =============================
 // Call Persistence (Postgres)
@@ -146,8 +228,6 @@ async function createCall(user1Id, user2Id) {
   return call;
 }
 
-
-
 async function ensureUserExists(userId) {
   let user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
@@ -162,7 +242,6 @@ async function ensureUserExists(userId) {
   }
   return user;
 }
-
 
 async function endSocketCall(roomId) {
   const room = activeRooms.get(roomId);
@@ -186,7 +265,6 @@ async function endSocketCall(roomId) {
   logger.info(`Room ${roomId} closed and cleaned up`);
 }
 
-
 async function endCall(callId) {
   const call = await prisma.call.update({
     where: { id: callId },
@@ -205,14 +283,14 @@ async function endCall(callId) {
 async function performAutoMatching() {
   try {
     logger.debug('Running auto-matching...');
-    const availableUsers = await getAvailableUsers();
 
-    if (!availableUsers || availableUsers.length < 2) {
+    const availableUsers = await getAvailableUsers();
+    if (!availableUsers || availableUsers.length < 1) {
       logger.debug('Not enough available users for matching');
       return;
     }
 
-    // Query active calls that include any of the available users (one DB call)
+    // Query active calls that include any of the available users
     const activeCalls = await prisma.call.findMany({
       where: {
         status: 'active',
@@ -224,14 +302,30 @@ async function performAutoMatching() {
       select: { callerId: true, receiverId: true, id: true },
     });
 
-    // Build a set of userIds that are currently in active calls
+    // ✅ Initialize busySet *before* logging
     const busySet = new Set();
     for (const c of activeCalls) {
-      if (c.callerId) busySet.add(c.callerId);
-      if (c.receiverId) busySet.add(c.receiverId);
+      const callerOnline = userSockets.has(c.callerId);
+      const receiverOnline = userSockets.has(c.receiverId);
+
+      // only consider active calls where at least one user is still connected
+      if (callerOnline || receiverOnline) {
+        if (c.callerId) busySet.add(c.callerId);
+        if (c.receiverId) busySet.add(c.receiverId);
+      } else {
+        await prisma.call.update({
+          where: { id: c.id },
+          data: { status: 'ended', endTime: new Date() },
+        });
+        logger.warn(`🧹 Auto-cleaned stale call ${c.id}`);
+      }
     }
 
-    // Build readyUsers excluding busy users and those already being matched
+    logger.debug(`Available users: ${availableUsers.length}`);
+    logger.debug(`Busy users: ${busySet.size}`);
+    logger.debug(`Ongoing matching users: ${ongoingMatching.size}`);
+
+    // Filter ready users
     const readyUsers = availableUsers.filter(
       (id) => userSockets.has(id) && !ongoingMatching.has(id) && !busySet.has(id)
     );
@@ -241,31 +335,26 @@ async function performAutoMatching() {
       return;
     }
 
-    // Use a queue-like process over readyUsers
+    // Proceed with pairing logic
     while (readyUsers.length >= 2) {
       const user1Id = readyUsers.shift();
       const user2Id = readyUsers.shift();
 
-      // double-check they are valid and still not in ongoingMatching
       if (!user1Id || !user2Id) break;
-      if (ongoingMatching.has(user1Id) || ongoingMatching.has(user2Id)) {
-        // skip if some race occurred
-        continue;
-      }
+      if (ongoingMatching.has(user1Id) || ongoingMatching.has(user2Id)) continue;
 
-      // mark them as being matched to avoid races
       ongoingMatching.add(user1Id);
       ongoingMatching.add(user2Id);
 
       const user1SocketId = userSockets.get(user1Id);
       const user2SocketId = userSockets.get(user2Id);
+
       if (!user1SocketId || !user2SocketId) {
         ongoingMatching.delete(user1Id);
         ongoingMatching.delete(user2Id);
         continue;
       }
 
-      // final DB double-check just before creating call (optional but safer)
       const currentlyActive = await prisma.call.findFirst({
         where: {
           status: 'active',
@@ -279,8 +368,9 @@ async function performAutoMatching() {
       });
 
       if (currentlyActive) {
-        // somebody got matched meanwhile — release and continue
-        logger.warn(`Race condition: one of the users already in active call, skipping (${user1Id}, ${user2Id})`);
+        logger.warn(
+          `Race condition: one of the users already in active call, skipping (${user1Id}, ${user2Id})`
+        );
         ongoingMatching.delete(user1Id);
         ongoingMatching.delete(user2Id);
         continue;
@@ -303,6 +393,7 @@ async function performAutoMatching() {
         io.to(roomId).emit('call-ready', {
           roomId,
           callId: call.id,
+          isInitiator: user1Id === call.callerId,
           participants: [
             { userId: user1Id, socketId: user1SocketId },
             { userId: user2Id, socketId: user2SocketId },
@@ -311,7 +402,6 @@ async function performAutoMatching() {
 
         logger.info(`Auto-match success: ${user1Id} <-> ${user2Id}`);
       } else {
-        // if sockets gone, clean up DB call and mark users available again (defensive)
         logger.warn(`Sockets not found for matched users, cleaning up call ${call.id}`);
         await endCall(call.id);
         await endSocketCall(roomId);
@@ -325,13 +415,25 @@ async function performAutoMatching() {
   }
 }
 
+// -----------------------------
+// Manual match attempt helper
+// -----------------------------
+async function findPartnerForUser(requesterId) {
+  // Get auto-enabled available users (excluding requester)
+  const available = await getAvailableUsers();
+  const candidates = available.filter((id) => id !== requesterId && userSockets.has(id) && !ongoingMatching.has(id));
+  if (candidates.length === 0) return null;
+  // simplest: pick first candidate
+  return candidates[0];
+}
+
 // =============================
 // Socket Handling
 // =============================
 io.on('connection', (socket) => {
   logger.info(`Socket connected: ${socket.id}`);
 
-  socket.on('join-firebase', async ({ userId }) => {
+  socket.on('user-available', async ({ userId }) => {
     try {
       if (!userId) {
         socket.emit('error', { message: 'User ID required' });
@@ -344,27 +446,285 @@ io.on('connection', (socket) => {
       socket.emit('joined', { userId, socketId: socket.id, iceServers });
       logger.info(`User ${userId} joined with socket ${socket.id}`);
 
-      setTimeout(performAutoMatching, 1000);
+      await cleanupStaleCalls();
     } catch (err) {
       logger.error(`Join failed: ${err.message}`);
     }
   });
 
-  socket.on('end-call', async ({ roomId, callId, userId }) => {
+  // Toggle whether the user participates in auto-matching
+  socket.on('toggle-matching', async ({ userId, enabled }) => {
     try {
-      if (callId) await endCall(callId);
-      if (roomId) await endSocketCall(roomId);
-      // don't aggressively set available here — endCall already does it after DB update
-      // if userId provided and you want to force availability for specific flows, do it carefully
+      logger.info(`Request to toggle matching for user ${userId}: ${enabled}`);
+      if (!userId) {
+        socket.emit('error', { message: 'User ID required for toggle-matching' });
+        return;
+      }
+      // enabled true/false; store as 'true' or 'false' string
+      await redis.set(`jalwa:user:${userId}:auto_matching`, enabled ? 'true' : 'false');
+      logger.info(`User ${userId} auto-matching set to ${enabled}`);
+      socket.emit('toggle-matching-ack', { userId, enabled });
     } catch (err) {
-      logger.error(`End call error: ${err.message}`);
+      logger.error(`toggle-matching failed for ${userId}: ${err.message}`);
     }
   });
 
-  socket.on('get-available-count', async () => {
-    const availableUsers = await getAvailableUsers();
-    socket.emit('available-count', { count: availableUsers.length });
+
+  // =============================
+// Handle explicit call end
+// =============================
+socket.on('end-call', async ({ roomId, callId, userId }) => {
+  try {
+    logger.info(`📞 end-call received: roomId=${roomId}, callId=${callId}, userId=${userId}`);
+
+    // 1️⃣ End DB call
+    if (callId) {
+      const existingCall = await prisma.call.findUnique({ where: { id: callId } });
+      if (existingCall && existingCall.status === 'active') {
+        await prisma.call.update({
+          where: { id: callId },
+          data: { status: 'ended', endTime: new Date() },
+        });
+        logger.info(`✅ Call ${callId} marked ended by ${userId}`);
+      }
+    }
+
+    // 2️⃣ Clean up active room if exists
+    if (roomId && activeRooms.has(roomId)) {
+      const room = activeRooms.get(roomId);
+      const participants = room.participants || [];
+
+      for (const uid of participants) {
+        await setUserAvailable(uid);
+      }
+
+      // Notify both users that the call ended
+      io.to(roomId).emit('call-ended', {
+        roomId,
+        callId,
+        endedBy: userId,
+      });
+
+      // Remove users from the room and cleanup
+      for (const socketId of io.sockets.adapter.rooms.get(roomId) || []) {
+        const s = io.sockets.sockets.get(socketId);
+        if (s) s.leave(roomId);
+      }
+      activeRooms.delete(roomId);
+      logger.info(`🧹 Room ${roomId} closed, participants freed`);
+    } else {
+      // fallback: free user directly if room info missing
+      if (userId) {
+        await setUserAvailable(userId);
+        logger.info(`Freed user ${userId} (no active room found)`);
+      }
+    }
+
+    // 3️⃣ Broadcast a cleanup event
+    socket.emit('end-call-ack', { callId, roomId, success: true });
+
+  } catch (err) {
+    logger.error(`❌ end-call handler failed: ${err.message}`);
+    socket.emit('end-call-ack', { success: false, error: err.message });
+  }
+});
+
+
+  // Manual match request: client asks to find a partner now
+  socket.on('match-request', async ({ userId }) => {
+    try {
+      if (!userId) {
+        socket.emit('error', { message: 'User ID required for match-request' });
+        return;
+      }
+
+      logger.info(`User ${userId} requested manual match`);
+
+      // ensure requester is available
+      await setUserAvailable(userId);
+      ongoingMatching.delete(userId); // ensure not blocked
+
+      const partnerId = await findPartnerForUser(userId);
+      if (!partnerId) {
+        socket.emit('no-users-available', { message: 'No users available right now' });
+        logger.debug(`No partner found for manual request by ${userId}`);
+        return;
+      }
+
+      // mark both as matching
+      ongoingMatching.add(userId);
+      ongoingMatching.add(partnerId);
+
+      // double-check sockets
+      const partnerSocketId = userSockets.get(partnerId);
+      const requesterSocketId = userSockets.get(userId);
+      if (!partnerSocketId || !requesterSocketId) {
+        ongoingMatching.delete(userId);
+        ongoingMatching.delete(partnerId);
+        socket.emit('no-users-available', { message: 'Partner disconnected' });
+        return;
+      }
+
+      // ensure neither is in an active call now
+      const currentlyActive = await prisma.call.findFirst({
+        where: {
+          status: 'active',
+          OR: [
+            { callerId: userId },
+            { receiverId: userId },
+            { callerId: partnerId },
+            { receiverId: partnerId },
+          ],
+        },
+      });
+      if (currentlyActive) {
+        ongoingMatching.delete(userId);
+        ongoingMatching.delete(partnerId);
+        socket.emit('no-users-available', { message: 'Partner busy' });
+        return;
+      }
+
+      // create DB call and emit call-ready to both
+      const call = await createCall(userId, partnerId);
+      const roomId = `room_${call.id}`;
+      const requesterSocket = io.sockets.sockets.get(requesterSocketId);
+      const partnerSocket = io.sockets.sockets.get(partnerSocketId);
+
+      if (requesterSocket && partnerSocket) {
+        requesterSocket.join(roomId);
+        partnerSocket.join(roomId);
+        activeRooms.set(roomId, {
+          participants: [userId, partnerId],
+          callId: call.id,
+          startTime: new Date(),
+        });
+
+        io.to(roomId).emit('call-ready', {
+          roomId,
+          callId: call.id,
+          isInitiator: userId === call.callerId,
+          participants: [
+            { userId, socketId: requesterSocketId },
+            { userId: partnerId, socketId: partnerSocketId },
+          ],
+        });
+
+        logger.info(`Manual-match success: ${userId} <-> ${partnerId}`);
+      } else {
+        logger.warn(`Manual-match sockets missing, cleaning up call ${call.id}`);
+        await endCall(call.id);
+        await endSocketCall(roomId);
+      }
+
+      ongoingMatching.delete(userId);
+      ongoingMatching.delete(partnerId);
+    } catch (err) {
+      logger.error(`match-request failed: ${err.message}`);
+      socket.emit('no-users-available', { message: 'Server error during matching' });
+    }
   });
+
+  // When a client accepts a match (optional: we relay to the other party/room)
+  socket.on('match-accepted', async ({ roomId, callId, fromUserId, toUserId }) => {
+    try {
+      logger.info(`match-accepted from ${fromUserId} for call ${callId}`);
+      // Relay to others in the room if present
+      if (roomId) {
+        socket.to(roomId).emit('match-accepted', { roomId, callId, fromUserId, toUserId });
+      } else if (callId) {
+        // find roomId by activeRooms mapping
+        for (const [rId, room] of activeRooms) {
+          if (room.callId === callId) {
+            io.to(rId).emit('match-accepted', { roomId: rId, callId, fromUserId, toUserId });
+            break;
+          }
+        }
+      }
+    } catch (err) {
+      logger.error(`match-accepted handler error: ${err.message}`);
+    }
+  });
+
+  socket.on('user-unavailable', async ({ userId }) => {
+    try {
+      if (!userId) return socket.emit('error', { message: 'User ID required' });
+  
+      // Remove from available pool
+      await redis.srem('jalwa:available_users', userId);
+      await redis.set(`jalwa:user:${userId}:status`, 'offline');
+  
+      logger.info(`🚫 User ${userId} marked unavailable via client`);
+      socket.emit('user-unavailable-ack', { userId, status: 'offline' });
+    } catch (err) {
+      logger.error(`user-unavailable failed for ${userId}: ${err.message}`);
+    }
+  });
+  
+
+  // When a client declines a match, end call and free other user
+  socket.on('match-declined', async ({ roomId, callId, fromUserId }) => {
+    try {
+      logger.info(`match-declined from ${fromUserId} for call ${callId || roomId}`);
+      if (callId) {
+        // end DB call and mark participants available
+        const call = await prisma.call.findUnique({ where: { id: callId } });
+        if (call && call.status === 'active') {
+          await prisma.call.update({
+            where: { id: callId },
+            data: { status: 'ended', endTime: new Date() },
+          });
+          // mark participants available
+          await setUserAvailable(call.callerId);
+          await setUserAvailable(call.receiverId);
+          logger.info(`Call ${callId} ended due to decline by ${fromUserId}`);
+        }
+      }
+
+      if (roomId) {
+        await endSocketCall(roomId);
+      }
+    } catch (err) {
+      logger.error(`match-declined handler failed: ${err.message}`);
+    }
+  });
+
+  // existing get available count handler (keeps enum naming)
+  socket.on('get-available-count', async () => {
+    try {
+      logger.info(`[get-available-count] Request from socket ${socket.id}`);
+  
+      // 1️⃣ Get IDs of available users
+      const availableUsers = await getAvailableUsers();
+      const count = availableUsers.length;
+  
+      // 2️⃣ Fetch their basic details from Postgres
+      let users = [];
+      if (count > 0) {
+        users = await prisma.user.findMany({
+          where: { id: { in: availableUsers } },
+          select: {
+            id: true,
+            name: true,
+            gender: true,
+            role: true,
+            createdAt: true,
+          },
+        });
+      }
+  
+      // 3️⃣ Emit structured data back to client
+      socket.emit('available-users', {
+        count,
+        users,
+      });
+  
+      logger.debug(`[get-available-count] Returned ${count} users`);
+    } catch (err) {
+      logger.error(`❌ get-available-count failed: ${err.message}`);
+      socket.emit('error', { message: 'Failed to fetch available users' });
+    }
+  });
+  
 
   socket.on('request-next-user', async ({ userId }) => {
     logger.info(`User ${userId} requested next match`);
@@ -377,6 +737,61 @@ io.on('connection', (socket) => {
     const { roomId, offer } = data;
     logger.debug(`Offer from ${socket.id} to room ${roomId}`);
     socket.to(roomId).emit('offer', { offer });
+  });
+
+  socket.on('force-available', async ({ userId }) => {
+    try {
+      if (!userId) {
+        socket.emit('error', { message: 'User ID required for force-available' });
+        return;
+      }
+  
+      // 🧹 Remove user from all maps and ongoing sets
+      ongoingMatching.delete(userId);
+  
+      // 🧹 End any active calls involving this user
+      const activeCalls = await prisma.call.findMany({
+        where: {
+          status: 'active',
+          OR: [{ callerId: userId }, { receiverId: userId }],
+        },
+      });
+  
+      for (const call of activeCalls) {
+        await prisma.call.update({
+          where: { id: call.id },
+          data: { status: 'ended', endTime: new Date() },
+        });
+        logger.warn(`🧹 Force-ended stuck call ${call.id} for user ${userId}`);
+      }
+  
+      // 🧹 Clean from all rooms
+      for (const [roomId, room] of activeRooms) {
+        if (room.participants.includes(userId)) {
+          await endSocketCall(roomId);
+        }
+      }
+  
+      // 🧹 Reset Redis state to “available” and enable auto-matching
+      await redis.sadd('jalwa:available_users', userId);
+      await redis.set(`jalwa:user:${userId}:status`, 'online');
+      await redis.set(`jalwa:user:${userId}:auto_matching`, 'true');
+  
+      // 🧹 Ensure socket is registered
+      const socketId = userSockets.get(userId);
+      if (socketId) {
+        const userSocket = io.sockets.sockets.get(socketId);
+        if (userSocket) {
+          userSocket.emit('freed', { userId });
+          logger.info(`✅ User ${userId} forcibly freed and marked available`);
+        }
+      }
+  
+      // ✅ Trigger rematching right away
+      setTimeout(performAutoMatching, 500);
+    } catch (err) {
+      logger.error(`Force-free failed for ${userId}: ${err.message}`);
+    }
   });
 
   socket.on('answer', (data) => {
@@ -642,6 +1057,8 @@ app.get('/health', async (req, res) => {
 //     return res.status(500).json({ error: 'Failed to sync user' });
 //   }
 // });
+
+
 
 
 // =============================
