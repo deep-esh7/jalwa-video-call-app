@@ -2,6 +2,7 @@
 const admin = require('../config/firebase');
 const logger = require('../config/logger');
 const UserService = require('../services/UserService');
+const RedisService = require('../services/RedisService');
 const { getUserFromToken } = require('../middleware/auth');
 const { HTTP_STATUS } = require('../constants');
 
@@ -34,7 +35,10 @@ class UserController {
         throw new Error('Failed to get or create user');
       }
 
-      logger.info(`✅ Fetched/created user: ${user.id}`);
+      // Mark user as online in Redis
+      await RedisService.setUserOnline(user.id);
+
+      logger.info(`✅ Fetched/created user: ${user.id} and marked online`);
 
       return res.json({
         success: true,
@@ -45,6 +49,7 @@ class UserController {
           photoURL: user.photoURL,
           phoneNumber: user.phone,
           gender: user.gender,
+          status: 'online',
           createdAt: user.createdAt,
           updatedAt: user.updatedAt,
         },
@@ -65,6 +70,40 @@ class UserController {
   }
 
   /**
+   * Get all users with their online/offline status
+   */
+  async getAllUsers(req, res, next) {
+    try {
+      logger.info('Fetching all users with status');
+
+      // Get all users from database
+      const users = await UserService.getAllUsers();
+
+      // Enrich with online/offline status from Redis
+      const usersWithStatus = await Promise.all(
+        users.map(async (user) => {
+          const status = await RedisService.getUserStatus(user.id);
+          return {
+            ...user,
+            status: status || 'offline',
+          };
+        })
+      );
+
+      logger.info(`Returning ${usersWithStatus.length} users`);
+
+      return res.json({
+        success: true,
+        data: usersWithStatus,
+        count: usersWithStatus.length,
+      });
+    } catch (error) {
+      logger.error(`Failed to fetch all users: ${error.message}`);
+      next(error);
+    }
+  }
+
+  /**
    * Get user by ID
    */
   async getUserById(req, res, next) {
@@ -80,9 +119,15 @@ class UserController {
         });
       }
 
+      // Get current status from Redis
+      const status = await RedisService.getUserStatus(id);
+
       return res.json({
         success: true,
-        data: user,
+        data: {
+          ...user,
+          status: status || 'offline',
+        },
       });
     } catch (error) {
       logger.error(`Failed to fetch user profile: ${error.message}`);
@@ -122,6 +167,27 @@ class UserController {
   }
 
   /**
+   * Mark user as offline (called when user leaves)
+   */
+  async markUserOffline(req, res, next) {
+    try {
+      const { userId } = req.params;
+
+      logger.info(`Marking user ${userId} as offline`);
+
+      await RedisService.setUserOffline(userId);
+
+      res.json({
+        success: true,
+        message: 'User marked as offline',
+      });
+    } catch (error) {
+      logger.error(`Failed to mark user offline: ${error.message}`);
+      next(error);
+    }
+  }
+
+  /**
    * Delete all users (admin only - for development)
    */
   async deleteAllUsers(req, res, next) {
@@ -141,4 +207,3 @@ class UserController {
 }
 
 module.exports = new UserController();
-

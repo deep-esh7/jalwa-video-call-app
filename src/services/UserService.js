@@ -61,6 +61,33 @@ class UserService {
   }
 
   /**
+   * Get all users
+   */
+  async getAllUsers() {
+    try {
+      const users = await prisma.user.findMany({
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          photoURL: true,
+          gender: true,
+          role: true,
+          createdAt: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      return users;
+    } catch (error) {
+      logger.error(`Failed to get all users: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Get multiple users by IDs
    */
   async getUsersByIds(userIds) {
@@ -154,4 +181,3 @@ class UserService {
 }
 
 module.exports = new UserService();
-

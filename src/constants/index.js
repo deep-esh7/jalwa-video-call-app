@@ -16,6 +16,12 @@ const SOCKET_EVENTS = {
   GET_AVAILABLE_COUNT: 'get-available-count',
   REQUEST_NEXT_USER: 'request-next-user',
   
+  // Call Invitation Events (NEW)
+  SEND_CALL_INVITATION: 'send-call-invitation',
+  ACCEPT_CALL_INVITATION: 'accept-call-invitation',
+  REJECT_CALL_INVITATION: 'reject-call-invitation',
+  CANCEL_CALL_INVITATION: 'cancel-call-invitation',
+  
   // WebRTC Signaling
   OFFER: 'offer',
   ANSWER: 'answer',
@@ -31,6 +37,13 @@ const SOCKET_EVENTS = {
   TOGGLE_MATCHING_ACK: 'toggle-matching-ack',
   USER_UNAVAILABLE_ACK: 'user-unavailable-ack',
   END_CALL_ACK: 'end-call-ack',
+  
+  // Call Invitation Responses (NEW)
+  CALL_INVITATION_RECEIVED: 'call-invitation-received',
+  CALL_INVITATION_ACCEPTED: 'call-invitation-accepted',
+  CALL_INVITATION_REJECTED: 'call-invitation-rejected',
+  CALL_INVITATION_CANCELLED: 'call-invitation-cancelled',
+  
   ERROR: 'error',
 };
 
@@ -43,9 +56,11 @@ const USER_STATUS = {
 
 // Call Status
 const CALL_STATUS = {
+  PENDING: 'pending',
   ACTIVE: 'active',
   ENDED: 'ended',
   REJECTED: 'rejected',
+  CANCELLED: 'cancelled',
 };
 
 // User Roles
@@ -89,4 +104,3 @@ module.exports = {
   REDIS_KEYS,
   HTTP_STATUS,
 };
-

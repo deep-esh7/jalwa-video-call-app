@@ -26,14 +26,14 @@ app.locals.activeRooms = socketState.activeRooms;
 app.locals.userSockets = socketState.userSockets;
 app.locals.MatchingService = MatchingService;
 
-// Start auto-matching interval (run every 5 seconds)
-setInterval(() => {
-  MatchingService.performAutoMatching(
-    socketState.userSockets,
-    io,
-    socketState.activeRooms
-  );
-}, 5000);
+// Auto-matching disabled - Using manual user selection instead
+// setInterval(() => {
+//   MatchingService.performAutoMatching(
+//     socketState.userSockets,
+//     io,
+//     socketState.activeRooms
+//   );
+// }, 5000);
 
 // Start server
 server.listen(environment.port, environment.host, () => {

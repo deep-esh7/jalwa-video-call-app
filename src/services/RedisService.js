@@ -5,6 +5,20 @@ const { REDIS_KEYS, USER_STATUS } = require('../constants');
 
 class RedisService {
   /**
+   * Mark user as online
+   */
+  async setUserOnline(userId) {
+    try {
+      await redis.sadd(REDIS_KEYS.AVAILABLE_USERS, userId);
+      await redis.set(REDIS_KEYS.USER_STATUS(userId), USER_STATUS.ONLINE);
+      logger.info(`✅ User ${userId} marked online`);
+    } catch (error) {
+      logger.error(`Failed to set user online: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Mark user as available for matching
    */
   async setUserAvailable(userId) {
@@ -157,4 +171,3 @@ class RedisService {
 }
 
 module.exports = new RedisService();
-

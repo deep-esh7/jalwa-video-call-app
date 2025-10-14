@@ -6,6 +6,7 @@ const { MatchingService } = require('../services');
 const ConnectionHandler = require('./connectionHandler');
 const MatchingHandler = require('./matchingHandler');
 const CallHandler = require('./callHandler');
+const CallInvitationHandler = require('./callInvitationHandler');
 const WebRTCHandler = require('./webrtcHandler');
 
 // In-memory state
@@ -21,7 +22,13 @@ function initializeSocketHandlers(io) {
   const connectionHandler = new ConnectionHandler(io, socketConnections, userSockets);
   const matchingHandler = new MatchingHandler(io, socketConnections, userSockets, activeRooms);
   const callHandler = new CallHandler(io, activeRooms);
+  const callInvitationHandler = new CallInvitationHandler(io, socketConnections, userSockets, activeRooms);
   const webrtcHandler = new WebRTCHandler();
+
+  // Cleanup expired invitations every minute
+  setInterval(() => {
+    callInvitationHandler.cleanupExpiredInvitations();
+  }, 60000);
 
   // Handle new connections
   io.on(SOCKET_EVENTS.CONNECTION, (socket) => {
@@ -68,6 +75,23 @@ function initializeSocketHandlers(io) {
 
     socket.on(SOCKET_EVENTS.FORCE_AVAILABLE, (data) =>
       callHandler.handleForceAvailable(socket, data, userSockets, MatchingService)
+    );
+
+    // Call invitation events (NEW)
+    socket.on(SOCKET_EVENTS.SEND_CALL_INVITATION, (data) =>
+      callInvitationHandler.handleSendCallInvitation(socket, data)
+    );
+
+    socket.on(SOCKET_EVENTS.ACCEPT_CALL_INVITATION, (data) =>
+      callInvitationHandler.handleAcceptCallInvitation(socket, data)
+    );
+
+    socket.on(SOCKET_EVENTS.REJECT_CALL_INVITATION, (data) =>
+      callInvitationHandler.handleRejectCallInvitation(socket, data)
+    );
+
+    socket.on(SOCKET_EVENTS.CANCEL_CALL_INVITATION, (data) =>
+      callInvitationHandler.handleCancelCallInvitation(socket, data)
     );
 
     // WebRTC signaling events
