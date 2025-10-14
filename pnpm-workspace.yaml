@@ -1,0 +1,6 @@
+ignoredBuiltDependencies:
+  - '@firebase/util'
+  - '@prisma/client'
+  - '@prisma/engines'
+  - prisma
+  - protobufjs
