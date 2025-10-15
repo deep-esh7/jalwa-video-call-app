@@ -4,19 +4,20 @@ const router = express.Router();
 const { UserController } = require('../controllers');
 
 // Get current user (requires Firebase token)
+// This is the primary API endpoint - creates/updates user in DB
 router.get('/me', UserController.getCurrentUser);
 
-// Get all users with status
+// Get all users with status (optional - for admin/debugging)
 router.get('/', UserController.getAllUsers);
 
-// Get user by ID
+// Get user by ID (optional - for user profiles)
 router.get('/:id', UserController.getUserById);
-
-// Mark user as offline
-router.post('/:userId/offline', UserController.markUserOffline);
 
 // Delete all users (admin only - for development)
 router.delete('/all', UserController.deleteAllUsers);
+
+// Note: No offline endpoint - users are automatically removed from
+// available list when they disconnect via socket
 
 module.exports = router;
 

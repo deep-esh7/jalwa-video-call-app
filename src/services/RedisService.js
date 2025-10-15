@@ -68,15 +68,16 @@ class RedisService {
   }
 
   /**
-   * Mark user as offline
+   * Remove user from available list (when disconnected)
+   * Note: We don't store "offline" status - users are either online/busy or not in Redis
    */
-  async setUserOffline(userId) {
+  async removeUser(userId) {
     try {
       await redis.srem(REDIS_KEYS.AVAILABLE_USERS, userId);
-      await redis.set(REDIS_KEYS.USER_STATUS(userId), USER_STATUS.OFFLINE);
-      logger.info(`User ${userId} marked offline`);
+      await redis.del(REDIS_KEYS.USER_STATUS(userId));
+      logger.info(`User ${userId} removed from available list`);
     } catch (error) {
-      logger.error(`Failed to set user offline: ${error.message}`);
+      logger.error(`Failed to remove user: ${error.message}`);
       throw error;
     }
   }
@@ -144,7 +145,7 @@ class RedisService {
   }
 
   /**
-   * Get user status
+   * Get user status (returns online, busy, or null if not in Redis)
    */
   async getUserStatus(userId) {
     try {
@@ -152,6 +153,30 @@ class RedisService {
     } catch (error) {
       logger.error(`Failed to get user status: ${error.message}`);
       return null;
+    }
+  }
+
+  /**
+   * Get all available (online) users from Redis
+   */
+  async getAllAvailableUserIds() {
+    try {
+      return await redis.smembers(REDIS_KEYS.AVAILABLE_USERS);
+    } catch (error) {
+      logger.error(`Failed to get all available user IDs: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Get count of available users
+   */
+  async getAvailableUsersCount() {
+    try {
+      return await redis.scard(REDIS_KEYS.AVAILABLE_USERS);
+    } catch (error) {
+      logger.error(`Failed to get available users count: ${error.message}`);
+      return 0;
     }
   }
 

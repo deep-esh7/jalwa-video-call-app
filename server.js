@@ -3,7 +3,7 @@ const http = require('http');
 const socketIo = require('socket.io');
 const createApp = require('./src/app');
 const { environment, logger } = require('./src/config');
-const initializeSocketHandlers = require('./src/sockets');
+const { initializeSocketHandlers } = require('./src/sockets');
 const { MatchingService } = require('./src/services');
 
 // Create Express app

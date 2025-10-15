@@ -1,7 +1,7 @@
 // src/sockets/callHandler.js
 const logger = require('../config/logger');
-const { RedisService, CallService } = require('../services');
-const { SOCKET_EVENTS } = require('../constants');
+const { RedisService, CallService, UserService } = require('../services');
+const { SOCKET_EVENTS, USER_STATUS } = require('../constants');
 
 class CallHandler {
   constructor(io, activeRooms) {
@@ -10,11 +10,40 @@ class CallHandler {
   }
 
   /**
-   * Handle call end
+   * Broadcast available users list to all connected clients
+   */
+  async broadcastAvailableUsers() {
+    try {
+      const availableUserIds = await RedisService.getAllAvailableUserIds();
+      
+      if (availableUserIds.length === 0) {
+        this.io.emit(SOCKET_EVENTS.BE_NO_USERS_AVAILABLE);
+        return;
+      }
+
+      const users = await UserService.getAvailableUsersWithDetails(availableUserIds);
+      const usersWithStatus = await Promise.all(
+        users.map(async (user) => {
+          const status = await RedisService.getUserStatus(user.id);
+          return { ...user, status: status || USER_STATUS.ONLINE };
+        })
+      );
+
+      this.io.emit(SOCKET_EVENTS.BE_AVAILABLE_USERS, {
+        users: usersWithStatus,
+        count: usersWithStatus.length,
+      });
+    } catch (error) {
+      logger.error(`Failed to broadcast available users: ${error.message}`);
+    }
+  }
+
+  /**
+   * Handle call end (updated to use new event names)
    */
   async handleEndCall(socket, { roomId, callId, userId }) {
     try {
-      logger.info(`📞 end-call received: roomId=${roomId}, callId=${callId}, userId=${userId}`);
+      logger.info(`📞 fe-end-call received: roomId=${roomId}, callId=${callId}, userId=${userId}`);
 
       // End DB call
       if (callId) {
@@ -30,14 +59,20 @@ class CallHandler {
         const room = this.activeRooms.get(roomId);
         const participants = room.participants || [];
 
+        // Mark both participants as available again
+        for (const participantId of participants) {
+          await RedisService.setUserAvailable(participantId);
+          logger.info(`✅ User ${participantId} marked available`);
+        }
+
         // Notify both users that the call ended
-        this.io.to(roomId).emit(SOCKET_EVENTS.CALL_ENDED, {
+        this.io.to(roomId).emit(SOCKET_EVENTS.BE_CALL_ENDED, {
           roomId,
           callId,
           endedBy: userId,
         });
 
-        // Remove users from the room and cleanup
+        // Remove users from the room
         for (const socketId of this.io.sockets.adapter.rooms.get(roomId) || []) {
           const s = this.io.sockets.sockets.get(socketId);
           if (s) s.leave(roomId);
@@ -45,20 +80,25 @@ class CallHandler {
         
         this.activeRooms.delete(roomId);
         logger.info(`🧹 Room ${roomId} closed, participants freed`);
+
+        // Broadcast updated available users list
+        await this.broadcastAvailableUsers();
       } else if (userId) {
         // Fallback: free user directly if room info missing
         await RedisService.setUserAvailable(userId);
         logger.info(`Freed user ${userId} (no active room found)`);
+        await this.broadcastAvailableUsers();
       }
 
-      socket.emit(SOCKET_EVENTS.END_CALL_ACK, {
+      // Send acknowledgment
+      socket.emit(SOCKET_EVENTS.BE_END_CALL_ACK, {
         callId,
         roomId,
         success: true,
       });
     } catch (error) {
       logger.error(`❌ end-call handler failed: ${error.message}`);
-      socket.emit(SOCKET_EVENTS.END_CALL_ACK, {
+      socket.emit(SOCKET_EVENTS.BE_END_CALL_ACK, {
         success: false,
         error: error.message,
       });

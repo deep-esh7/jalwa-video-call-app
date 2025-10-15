@@ -149,6 +149,8 @@ class UserService {
 
   /**
    * Create or update user from Firebase token
+   * Note: This only creates/updates the user in DB, NOT marking them online
+   * User will be marked online when they connect via socket
    */
   async upsertUserFromToken(decodedToken) {
     try {
@@ -172,9 +174,38 @@ class UserService {
         },
       });
 
+      logger.info(`User ${user.id} upserted via Firebase token`);
       return user;
     } catch (error) {
       logger.error(`Failed to upsert user from token: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Get available users with their full details
+   * This fetches user data from DB for the given user IDs
+   */
+  async getAvailableUsersWithDetails(userIds) {
+    try {
+      if (!userIds || userIds.length === 0) {
+        return [];
+      }
+
+      const users = await prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: {
+          id: true,
+          name: true,
+          photoURL: true,
+          gender: true,
+          role: true,
+        },
+      });
+
+      return users;
+    } catch (error) {
+      logger.error(`Failed to get available users with details: ${error.message}`);
       throw error;
     }
   }

@@ -1,57 +1,70 @@
 // src/constants/index.js
 
-// Socket Events
+// Socket Events (Matching Flutter frontend naming convention)
+// fe- prefix = Frontend emits (Client → Server)
+// be- prefix = Backend emits (Server → Client)
 const SOCKET_EVENTS = {
-  // Client → Server
+  // System Events
   CONNECTION: 'connection',
   DISCONNECT: 'disconnect',
-  USER_AVAILABLE: 'user-available',
-  USER_UNAVAILABLE: 'user-unavailable',
-  TOGGLE_MATCHING: 'toggle-matching',
-  MATCH_REQUEST: 'match-request',
-  MATCH_ACCEPTED: 'match-accepted',
-  MATCH_DECLINED: 'match-declined',
-  END_CALL: 'end-call',
-  FORCE_AVAILABLE: 'force-available',
-  GET_AVAILABLE_COUNT: 'get-available-count',
-  REQUEST_NEXT_USER: 'request-next-user',
   
-  // Call Invitation Events (NEW)
-  SEND_CALL_INVITATION: 'send-call-invitation',
-  ACCEPT_CALL_INVITATION: 'accept-call-invitation',
-  REJECT_CALL_INVITATION: 'reject-call-invitation',
-  CANCEL_CALL_INVITATION: 'cancel-call-invitation',
+  // Frontend → Backend (User Presence)
+  FE_USER_AVAILABLE: 'fe-user-available',
+  FE_USER_UNAVAILABLE: 'fe-user-unavailable',
+  FE_GET_AVAILABLE_COUNT: 'fe-get-available-count',
+  FE_REQUEST_NEXT_USER: 'fe-request-next-user',
   
-  // WebRTC Signaling
-  OFFER: 'offer',
-  ANSWER: 'answer',
-  ICE_CANDIDATE: 'ice-candidate',
+  // Frontend → Backend (Matching - Legacy, keeping for compatibility)
+  FE_MATCH_REQUEST: 'fe-match-request',
+  FE_TOGGLE_MATCHING: 'fe-toggle-matching',
   
-  // Server → Client
-  JOINED: 'joined',
-  CALL_READY: 'call-ready',
-  CALL_ENDED: 'call-ended',
-  AVAILABLE_USERS: 'available-users',
-  NO_USERS_AVAILABLE: 'no-users-available',
-  FREED: 'freed',
-  TOGGLE_MATCHING_ACK: 'toggle-matching-ack',
-  USER_UNAVAILABLE_ACK: 'user-unavailable-ack',
-  END_CALL_ACK: 'end-call-ack',
+  // Frontend → Backend (Call Management)
+  FE_END_CALL: 'fe-end-call',
+  FE_SEND_CALL_INVITATION: 'fe-send-call-invitation',
+  FE_ACCEPT_CALL_INVITATION: 'fe-accept-call-invitation',
+  FE_REJECT_CALL_INVITATION: 'fe-reject-call-invitation',
+  FE_CANCEL_CALL_INVITATION: 'fe-cancel-call-invitation',
   
-  // Call Invitation Responses (NEW)
-  CALL_INVITATION_RECEIVED: 'call-invitation-received',
-  CALL_INVITATION_ACCEPTED: 'call-invitation-accepted',
-  CALL_INVITATION_REJECTED: 'call-invitation-rejected',
-  CALL_INVITATION_CANCELLED: 'call-invitation-cancelled',
+  // Frontend → Backend (WebRTC Signaling)
+  FE_OFFER: 'fe-offer',
+  FE_ANSWER: 'fe-answer',
+  FE_ICE_CANDIDATE: 'fe-ice-candidate',
   
-  ERROR: 'error',
+  // Backend → Frontend (User Lists & Status)
+  BE_AVAILABLE_USERS: 'be-available-users',
+  BE_AVAILABLE_USERS_COUNT: 'be-available-users-count',
+  BE_NO_USERS_AVAILABLE: 'be-no-users-available',
+  BE_USER_JOINED: 'be-user-joined',
+  BE_USER_LEFT: 'be-user-left',
+  BE_USER_STATUS_CHANGED: 'be-user-status-changed',
+  
+  // Backend → Frontend (Call Management)
+  BE_CALL_READY: 'be-call-ready',
+  BE_CALL_ENDED: 'be-call-ended',
+  BE_END_CALL_ACK: 'be-end-call-ack',
+  BE_CALL_INVITATION_RECEIVED: 'be-call-invitation-received',
+  BE_CALL_INVITATION_ACCEPTED: 'be-call-invitation-accepted',
+  BE_CALL_INVITATION_REJECTED: 'be-call-invitation-rejected',
+  BE_CALL_INVITATION_CANCELLED: 'be-call-invitation-cancelled',
+  
+  // Backend → Frontend (Matching - Legacy)
+  BE_MATCH_ACCEPTED: 'be-match-accepted',
+  BE_MATCH_DECLINED: 'be-match-declined',
+  
+  // Backend → Frontend (WebRTC Signaling)
+  BE_OFFER: 'be-offer',
+  BE_ANSWER: 'be-answer',
+  BE_ICE_CANDIDATE: 'be-ice-candidate',
+  
+  // Backend → Frontend (System)
+  BE_JOINED: 'be-joined',
+  BE_ERROR: 'be-error',
 };
 
-// User Status
+// User Status (Removed OFFLINE - only showing available users)
 const USER_STATUS = {
-  ONLINE: 'online',
-  OFFLINE: 'offline',
-  BUSY: 'busy',
+  ONLINE: 'online',    // Available for calls
+  BUSY: 'busy',        // Currently in a call
 };
 
 // Call Status

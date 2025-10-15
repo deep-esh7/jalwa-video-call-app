@@ -35,10 +35,9 @@ class UserController {
         throw new Error('Failed to get or create user');
       }
 
-      // Mark user as online in Redis
-      await RedisService.setUserOnline(user.id);
-
-      logger.info(`✅ Fetched/created user: ${user.id} and marked online`);
+      // NOTE: User is NOT marked online here
+      // User will be marked online when they connect via socket (fe-user-available event)
+      logger.info(`✅ Fetched/created user: ${user.id}`);
 
       return res.json({
         success: true,
@@ -49,7 +48,6 @@ class UserController {
           photoURL: user.photoURL,
           phoneNumber: user.phone,
           gender: user.gender,
-          status: 'online',
           createdAt: user.createdAt,
           updatedAt: user.updatedAt,
         },
@@ -166,26 +164,8 @@ class UserController {
     }
   }
 
-  /**
-   * Mark user as offline (called when user leaves)
-   */
-  async markUserOffline(req, res, next) {
-    try {
-      const { userId } = req.params;
-
-      logger.info(`Marking user ${userId} as offline`);
-
-      await RedisService.setUserOffline(userId);
-
-      res.json({
-        success: true,
-        message: 'User marked as offline',
-      });
-    } catch (error) {
-      logger.error(`Failed to mark user offline: ${error.message}`);
-      next(error);
-    }
-  }
+  // Note: markUserOffline removed - users are automatically removed
+  // from available list when they disconnect via socket
 
   /**
    * Delete all users (admin only - for development)
