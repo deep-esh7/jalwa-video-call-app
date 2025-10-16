@@ -93,6 +93,12 @@ class ConnectionHandler {
         userId,
         message: `User ${userId} is now available`,
       });
+
+      // Notify status change
+      this.io.emit(SOCKET_EVENTS.BE_USER_STATUS_CHANGED, {
+        userId,
+        status: USER_STATUS.ONLINE,
+      });
     } catch (error) {
       logger.error(`Error in handleUserAvailable: ${error.message}`);
       socket.emit(SOCKET_EVENTS.BE_ERROR, { message: 'Failed to mark user as available' });
@@ -111,6 +117,12 @@ class ConnectionHandler {
       }
 
       await this.cleanupUser(userId, socket.id);
+
+      // Send acknowledgment
+      socket.emit(SOCKET_EVENTS.BE_USER_UNAVAILABLE_ACK, {
+        userId,
+        success: true,
+      });
 
       logger.info(`User ${userId} marked unavailable`);
     } catch (error) {

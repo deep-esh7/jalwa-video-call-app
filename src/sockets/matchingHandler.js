@@ -19,14 +19,14 @@ class MatchingHandler {
       logger.info(`Request to toggle matching for user ${userId}: ${enabled}`);
       
       if (!userId) {
-        socket.emit(SOCKET_EVENTS.ERROR, { message: 'User ID required for toggle-matching' });
+        socket.emit(SOCKET_EVENTS.BE_ERROR, { message: 'User ID required for toggle-matching' });
         return;
       }
 
       await RedisService.setAutoMatching(userId, enabled);
       logger.info(`User ${userId} auto-matching set to ${enabled}`);
       
-      socket.emit(SOCKET_EVENTS.TOGGLE_MATCHING_ACK, { userId, enabled });
+      socket.emit(SOCKET_EVENTS.BE_TOGGLE_MATCHING_ACK, { userId, enabled });
     } catch (error) {
       logger.error(`toggle-matching failed for ${userId}: ${error.message}`);
     }
@@ -38,7 +38,7 @@ class MatchingHandler {
   async handleMatchRequest(socket, { userId }) {
     try {
       if (!userId) {
-        socket.emit(SOCKET_EVENTS.ERROR, { message: 'User ID required for match-request' });
+        socket.emit(SOCKET_EVENTS.BE_ERROR, { message: 'User ID required for match-request' });
         return;
       }
 
@@ -51,7 +51,7 @@ class MatchingHandler {
       const partnerId = await MatchingService.findPartnerForUser(userId, this.userSockets);
       
       if (!partnerId) {
-        socket.emit(SOCKET_EVENTS.NO_USERS_AVAILABLE, {
+        socket.emit(SOCKET_EVENTS.BE_NO_USERS_AVAILABLE, {
           message: 'No users available right now',
         });
         logger.debug(`No partner found for manual request by ${userId}`);
@@ -69,7 +69,7 @@ class MatchingHandler {
       if (!partnerSocketId || !requesterSocketId) {
         MatchingService.removeFromOngoingMatching(userId);
         MatchingService.removeFromOngoingMatching(partnerId);
-        socket.emit(SOCKET_EVENTS.NO_USERS_AVAILABLE, { message: 'Partner disconnected' });
+        socket.emit(SOCKET_EVENTS.BE_NO_USERS_AVAILABLE, { message: 'Partner disconnected' });
         return;
       }
 
@@ -79,7 +79,7 @@ class MatchingHandler {
       if (hasActiveCall) {
         MatchingService.removeFromOngoingMatching(userId);
         MatchingService.removeFromOngoingMatching(partnerId);
-        socket.emit(SOCKET_EVENTS.NO_USERS_AVAILABLE, { message: 'Partner busy' });
+        socket.emit(SOCKET_EVENTS.BE_NO_USERS_AVAILABLE, { message: 'Partner busy' });
         return;
       }
 
@@ -99,7 +99,7 @@ class MatchingHandler {
           startTime: new Date(),
         });
 
-        this.io.to(roomId).emit(SOCKET_EVENTS.CALL_READY, {
+        this.io.to(roomId).emit(SOCKET_EVENTS.BE_CALL_READY, {
           roomId,
           callId: call.id,
           isInitiator: userId === call.callerId,
@@ -119,7 +119,7 @@ class MatchingHandler {
       MatchingService.removeFromOngoingMatching(partnerId);
     } catch (error) {
       logger.error(`match-request failed: ${error.message}`);
-      socket.emit(SOCKET_EVENTS.NO_USERS_AVAILABLE, {
+      socket.emit(SOCKET_EVENTS.BE_NO_USERS_AVAILABLE, {
         message: 'Server error during matching',
       });
     }
@@ -133,7 +133,7 @@ class MatchingHandler {
       logger.info(`match-accepted from ${fromUserId} for call ${callId}`);
       
       if (roomId) {
-        socket.to(roomId).emit(SOCKET_EVENTS.MATCH_ACCEPTED, {
+        socket.to(roomId).emit(SOCKET_EVENTS.BE_MATCH_ACCEPTED, {
           roomId,
           callId,
           fromUserId,
@@ -143,7 +143,7 @@ class MatchingHandler {
         // Find roomId by activeRooms mapping
         for (const [rId, room] of this.activeRooms) {
           if (room.callId === callId) {
-            this.io.to(rId).emit(SOCKET_EVENTS.MATCH_ACCEPTED, {
+            this.io.to(rId).emit(SOCKET_EVENTS.BE_MATCH_ACCEPTED, {
               roomId: rId,
               callId,
               fromUserId,
@@ -177,10 +177,17 @@ class MatchingHandler {
         const room = this.activeRooms.get(roomId);
         
         // Notify others in room
-        this.io.to(roomId).emit(SOCKET_EVENTS.CALL_ENDED, {
+        this.io.to(roomId).emit(SOCKET_EVENTS.BE_CALL_ENDED, {
           roomId,
           callId,
           reason: 'Match declined',
+        });
+
+        // Notify match declined
+        this.io.to(roomId).emit(SOCKET_EVENTS.BE_MATCH_DECLINED, {
+          roomId,
+          callId,
+          declinedBy: fromUserId,
         });
 
         // Clean up room
@@ -210,11 +217,11 @@ class MatchingHandler {
         users = await UserService.getUsersByIds(availableUsers);
       }
 
-      socket.emit(SOCKET_EVENTS.AVAILABLE_USERS, { count, users });
+      socket.emit(SOCKET_EVENTS.BE_AVAILABLE_USERS, { count, users });
       logger.debug(`[get-available-count] Returned ${count} users`);
     } catch (error) {
       logger.error(`❌ get-available-count failed: ${error.message}`);
-      socket.emit(SOCKET_EVENTS.ERROR, { message: 'Failed to fetch available users' });
+      socket.emit(SOCKET_EVENTS.BE_ERROR, { message: 'Failed to fetch available users' });
     }
   }
 

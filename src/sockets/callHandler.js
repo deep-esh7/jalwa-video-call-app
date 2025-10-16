@@ -63,6 +63,12 @@ class CallHandler {
         for (const participantId of participants) {
           await RedisService.setUserAvailable(participantId);
           logger.info(`✅ User ${participantId} marked available`);
+          
+          // Notify status change
+          this.io.emit(SOCKET_EVENTS.BE_USER_STATUS_CHANGED, {
+            userId: participantId,
+            status: USER_STATUS.ONLINE,
+          });
         }
 
         // Notify both users that the call ended

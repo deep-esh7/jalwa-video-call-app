@@ -88,6 +88,54 @@ void connectSocket(String userId) {
 
 ## 📨 Socket Events Reference
 
+### 📡 Complete Backend Events List (22 Events - All Implemented!)
+
+#### 🟢 User Presence & Status (7 events)
+| Backend Event | Purpose | When Triggered |
+|---------------|---------|----------------|
+| `be-available-users` | Real-time users list | User status changes |
+| `be-available-users-count` | Users count | User status changes |
+| `be-no-users-available` | No users online | No users available |
+| `be-user-joined` | Someone joined | New user connects |
+| `be-user-left` | Someone left | User disconnects |
+| `be-user-status-changed` | Status changed | User becomes online/busy |
+| `be-user-unavailable-ack` | Unavailable confirmed | User explicitly unavailable |
+
+#### 🟢 Call Management (7 events)
+| Backend Event | Purpose | When Triggered |
+|---------------|---------|----------------|
+| `be-call-ready` | Start WebRTC | Call established |
+| `be-call-ended` | Call ended | Call terminated |
+| `be-end-call-ack` | End confirmed | Call end acknowledged |
+| `be-call-invitation-received` | Incoming call | Call invitation sent |
+| `be-call-invitation-accepted` | Call accepted | Invitation accepted |
+| `be-call-invitation-rejected` | Call rejected | Invitation rejected |
+| `be-call-invitation-cancelled` | Call cancelled | Invitation cancelled |
+
+#### 🟢 Matching (Legacy Support) (3 events)
+| Backend Event | Purpose | When Triggered |
+|---------------|---------|----------------|
+| `be-match-accepted` | Match found | Auto-matching success |
+| `be-match-declined` | Match declined | Auto-matching declined |
+| `be-toggle-matching-ack` | Toggle confirmed | Matching toggle |
+
+#### 🟢 WebRTC Signaling (3 events)
+| Backend Event | Purpose | When Triggered |
+|---------------|---------|----------------|
+| `be-offer` | WebRTC offer | WebRTC signaling |
+| `be-answer` | WebRTC answer | WebRTC signaling |
+| `be-ice-candidate` | WebRTC ICE | WebRTC signaling |
+
+#### 🟢 System Events (2 events)
+| Backend Event | Purpose | When Triggered |
+|---------------|---------|----------------|
+| `be-joined` | Connection confirmed | User connects |
+| `be-error` | Error message | Any error |
+
+**📊 Total: 22 Backend Events - All Implemented!**
+
+---
+
 ### 1. User Presence Events
 
 #### ✅ Mark User Online/Available

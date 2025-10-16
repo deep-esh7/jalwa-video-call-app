@@ -7,6 +7,7 @@ const ConnectionHandler = require('./connectionHandler');
 const CallInvitationHandler = require('./callInvitationHandler');
 const CallHandler = require('./callHandler');
 const WebRTCHandler = require('./webrtcHandler');
+const MatchingHandler = require('./matchingHandler');
 
 // In-memory state
 const socketConnections = new Map(); // socketId -> userId
@@ -25,6 +26,7 @@ function initializeSocketHandlers(io) {
   const callInvitationHandler = new CallInvitationHandler(io, socketConnections, userSockets, activeRooms);
   const callHandler = new CallHandler(io, activeRooms);
   const webrtcHandler = new WebRTCHandler();
+  const matchingHandler = new MatchingHandler(io, socketConnections, userSockets, activeRooms);
 
   // Cleanup expired invitations every minute
   setInterval(() => {
@@ -52,6 +54,25 @@ function initializeSocketHandlers(io) {
     // Frontend emits: fe-get-available-count
     socket.on(SOCKET_EVENTS.FE_GET_AVAILABLE_COUNT, () => {
       connectionHandler.handleGetAvailableCount(socket);
+    });
+
+    // Frontend emits: fe-request-next-user
+    socket.on(SOCKET_EVENTS.FE_REQUEST_NEXT_USER, (data) => {
+      matchingHandler.handleRequestNextUser(socket, data);
+    });
+
+    // =====================================================================
+    // MATCHING EVENTS (Legacy Support)
+    // =====================================================================
+    
+    // Frontend emits: fe-toggle-matching
+    socket.on(SOCKET_EVENTS.FE_TOGGLE_MATCHING, (data) => {
+      matchingHandler.handleToggleMatching(socket, data);
+    });
+
+    // Frontend emits: fe-match-request
+    socket.on(SOCKET_EVENTS.FE_MATCH_REQUEST, (data) => {
+      matchingHandler.handleMatchRequest(socket, data);
     });
 
     // =====================================================================

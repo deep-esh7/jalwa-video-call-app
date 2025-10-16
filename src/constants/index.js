@@ -50,6 +50,8 @@ const SOCKET_EVENTS = {
   // Backend → Frontend (Matching - Legacy)
   BE_MATCH_ACCEPTED: 'be-match-accepted',
   BE_MATCH_DECLINED: 'be-match-declined',
+  BE_TOGGLE_MATCHING_ACK: 'be-toggle-matching-ack',
+  BE_USER_UNAVAILABLE_ACK: 'be-user-unavailable-ack',
   
   // Backend → Frontend (WebRTC Signaling)
   BE_OFFER: 'be-offer',
