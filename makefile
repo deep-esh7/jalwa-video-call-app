@@ -2,10 +2,10 @@
 # Development
 # ============================
 runLocal:
-	npm run start:local
+	pnpm run start:local
 
 runDevServer:
-	npm run start:dev
+	pnpm run start:dev
 
 runProdServer:
 	pm2 start ecosystem.config.js --env production && pm2 save
