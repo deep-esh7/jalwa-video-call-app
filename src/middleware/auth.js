@@ -9,10 +9,30 @@ const { HTTP_STATUS } = require('../constants');
  */
 const verifyAndDecodeToken = async (idToken) => {
   try {
-    return await admin.auth().verifyIdToken(idToken);
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    logger.debug('Token verified successfully:', {
+      uid: decodedToken.uid,
+      email: decodedToken.email,
+      name: decodedToken.name,
+    });
+    return decodedToken;
   } catch (error) {
-    logger.error('Error verifying token:', error);
-    throw new Error('Invalid or expired token');
+    logger.error('❌ Error verifying Firebase token:', {
+      errorCode: error.code,
+      errorMessage: error.message,
+      stack: error.stack,
+    });
+    
+    // Provide more specific error messages
+    if (error.code === 'auth/id-token-expired') {
+      throw new Error('Token has expired. Please sign in again.');
+    } else if (error.code === 'auth/argument-error') {
+      throw new Error('Invalid token format. Please provide a valid Firebase ID token.');
+    } else if (error.code === 'auth/user-not-found') {
+      throw new Error('User not found in Firebase. Please sign up first.');
+    }
+    
+    throw new Error(`Token verification failed: ${error.message}`);
   }
 };
 
@@ -49,11 +69,19 @@ const authenticate = async (req, res, next) => {
  */
 const getUserFromToken = async (idToken) => {
   try {
+    logger.info('🔐 Verifying Firebase token...');
     const decodedToken = await verifyAndDecodeToken(idToken);
+    
+    logger.info('✅ Token verified, upserting user to database...');
     const user = await UserService.upsertUserFromToken(decodedToken);
+    
+    logger.info('✅ User retrieved/created successfully');
     return user;
   } catch (error) {
-    logger.error('Failed to get user from token:', error);
+    logger.error('❌ Failed to get user from token:', {
+      message: error.message,
+      stack: error.stack,
+    });
     throw error;
   }
 };

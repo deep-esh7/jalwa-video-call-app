@@ -154,30 +154,47 @@ class UserService {
    */
   async upsertUserFromToken(decodedToken) {
     try {
+      // Firebase token fields mapping:
+      // uid/sub/user_id: user identifier
+      // name: display name (from Google auth)
+      // picture: profile photo URL
+      // email: user email
+      // phone_number: phone number
+      const userId = decodedToken.uid || decodedToken.sub || decodedToken.user_id;
+      const userName = decodedToken.name || decodedToken.displayName || 'Anonymous';
+      const userEmail = decodedToken.email || null;
+      const userPhoto = decodedToken.picture || decodedToken.photoURL || null;
+      const userPhone = decodedToken.phone_number || null;
+
+      logger.info(`Upserting user with ID: ${userId}, name: ${userName}, email: ${userEmail}`);
+
       const user = await prisma.user.upsert({
-        where: { id: decodedToken.uid },
+        where: { id: userId },
         update: {
-          name: decodedToken.name || undefined,
-          email: decodedToken.email || undefined,
-          photoURL: decodedToken.picture || undefined,
-          phone: decodedToken.phone_number || undefined,
+          name: userName,
+          email: userEmail,
+          photoURL: userPhoto,
+          phone: userPhone,
           updatedAt: new Date(),
         },
         create: {
-          id: decodedToken.uid,
-          name: decodedToken.name || 'Anonymous',
-          email: decodedToken.email || null,
-          photoURL: decodedToken.picture || null,
-          phone: decodedToken.phone_number || null,
+          id: userId,
+          name: userName,
+          email: userEmail,
+          photoURL: userPhoto,
+          phone: userPhone,
           gender: 'MALE',
           role: USER_ROLES.USER,
         },
       });
 
-      logger.info(`User ${user.id} upserted via Firebase token`);
+      logger.info(`✅ User ${user.id} upserted successfully via Firebase token`);
       return user;
     } catch (error) {
-      logger.error(`Failed to upsert user from token: ${error.message}`);
+      logger.error(`❌ Failed to upsert user from token: ${error.message}`, {
+        stack: error.stack,
+        tokenFields: Object.keys(decodedToken),
+      });
       throw error;
     }
   }
