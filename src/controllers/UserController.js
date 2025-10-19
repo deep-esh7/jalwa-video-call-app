@@ -138,12 +138,23 @@ class UserController {
    */
   async getUserFromFirebase(req, res, next) {
     try {
-      const { userId } = req.params;
+      const authHeader = req.headers.authorization;
+      logger.info('Fetch user profile via token');
 
-      logger.info(`Fetch user profile: ${userId}`);
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        logger.warn('No Bearer token provided for getUserFromFirebase');
+        return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+          success: false,
+          message: 'No token provided',
+        });
+      }
 
-      // Get user data from Firebase
-      const userRecord = await admin.auth().getUser(userId);
+      const idToken = authHeader.split('Bearer ')[1];
+      const decoded = await admin.auth().verifyIdToken(idToken);
+      const uid = decoded.uid;
+
+      // Fetch user by UID derived from verified token
+      const userRecord = await admin.auth().getUser(uid);
 
       res.json({
         success: true,
@@ -155,8 +166,11 @@ class UserController {
         },
       });
     } catch (error) {
-      logger.error('Error fetching user data:', error);
-      res.status(HTTP_STATUS.BAD_REQUEST).json({
+      logger.error('Error fetching user data via token:', error);
+      const statusCode = error.code === 'auth/argument-error' || error.code === 'auth/id-token-expired'
+        ? HTTP_STATUS.UNAUTHORIZED
+        : HTTP_STATUS.BAD_REQUEST;
+      res.status(statusCode).json({
         success: false,
         message: 'Error fetching user data',
         error: error.message,
