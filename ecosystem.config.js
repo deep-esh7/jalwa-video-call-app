@@ -9,10 +9,10 @@ module.exports = {
       NODE_ENV: 'local'
     },
     env_development: {
-      NODE_ENV: 'development' 
+      NODE_ENV: 'dev' 
     },
     env_production: {
-      NODE_ENV: 'production'
+      NODE_ENV: 'prod'
     },
 
     autorestart: true,
