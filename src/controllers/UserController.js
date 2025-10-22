@@ -62,7 +62,7 @@ class UserController {
       res.status(statusCode).json({
         success: false,
         message: 'Authentication failed',
-        error: process.env.NODE_ENV === 'production' ? 'Authentication error' : error.message,
+        error: process.env.NODE_ENV === 'prod' ? 'Authentication error' : error.message,
       });
     }
   }

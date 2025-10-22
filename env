@@ -1,5 +1,5 @@
 
-NODE_ENV=production
+NODE_ENV=prod
 HOST=72.60.99.164
 PORT=4000
 

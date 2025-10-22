@@ -952,7 +952,7 @@ app.get('/api/user/me', async (req, res) => {
     res.status(statusCode).json({
       success: false,
       message: 'Authentication failed',
-      error: process.env.NODE_ENV === 'production' 
+      error: process.env.NODE_ENV === 'prod' 
         ? 'Authentication error' 
         : error.message
     });
