@@ -1,5 +1,5 @@
 // src/config/environment.js
-require('dotenv').config({ path: `.env.${process.env.NODE_ENV || 'local'}` });
+require('dotenv').config({ path: `.env.prod || 'local'}` });
 
 const config = {
   env: process.env.NODE_ENV || 'local',
