@@ -149,21 +149,44 @@ class ConnectionHandler {
   }
 
   /**
-   * Handle get available count request
+   * Handle get available users request (returns list and count)
    */
-  async handleGetAvailableCount(socket) {
+  async handleGetAvailableUsers(socket) {
     try {
-      const count = await RedisService.getAvailableUsersCount();
-      
-      socket.emit(SOCKET_EVENTS.BE_AVAILABLE_USERS_COUNT, {
-        count,
+      logger.info(`[get-available-user] Request from socket ${socket.id}`);
+
+      // Get all available user IDs from Redis
+      const availableUserIds = await RedisService.getAllAvailableUserIds();
+      const count = availableUserIds.length;
+
+      let users = [];
+      if (count > 0) {
+        // Fetch full user details from database
+        users = await UserService.getAvailableUsersWithDetails(availableUserIds);
+        
+        // Enrich with status from Redis
+        users = await Promise.all(
+          users.map(async (user) => {
+            const status = await RedisService.getUserStatus(user.id);
+            return {
+              ...user,
+              status: status || USER_STATUS.ONLINE,
+            };
+          })
+        );
+      }
+
+      // Emit response with both users list and count
+      socket.emit(SOCKET_EVENTS.BE_AVAILABLE_USERS, { 
+        count, 
+        users,
         message: `${count} users available`,
       });
 
-      logger.debug(`Available users count requested: ${count}`);
+      logger.info(`[get-available-user] Returned ${count} available users`);
     } catch (error) {
-      logger.error(`Error in handleGetAvailableCount: ${error.message}`);
-      socket.emit(SOCKET_EVENTS.BE_ERROR, { message: 'Failed to get available count' });
+      logger.error(`❌ get-available-user failed: ${error.message}`);
+      socket.emit(SOCKET_EVENTS.BE_ERROR, { message: 'Failed to fetch available users' });
     }
   }
 

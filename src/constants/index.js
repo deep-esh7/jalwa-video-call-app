@@ -11,7 +11,7 @@ const SOCKET_EVENTS = {
   // Frontend → Backend (User Presence)
   FE_USER_AVAILABLE: 'fe-user-available',
   FE_USER_UNAVAILABLE: 'fe-user-unavailable',
-  FE_GET_AVAILABLE_COUNT: 'fe-get-available-count',
+  FE_GET_AVAILABLE_USER: 'fe-get-available-user',
   FE_REQUEST_NEXT_USER: 'fe-request-next-user',
   
   // Frontend → Backend (Matching - Legacy, keeping for compatibility)

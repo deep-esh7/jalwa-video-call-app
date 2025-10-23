@@ -51,9 +51,9 @@ function initializeSocketHandlers(io) {
       connectionHandler.handleUserUnavailable(socket, data);
     });
 
-    // Frontend emits: fe-get-available-count
-    socket.on(SOCKET_EVENTS.FE_GET_AVAILABLE_COUNT, () => {
-      connectionHandler.handleGetAvailableCount(socket);
+    // Frontend emits: fe-get-available-user
+    socket.on(SOCKET_EVENTS.FE_GET_AVAILABLE_USER, () => {
+      connectionHandler.handleGetAvailableUsers(socket);
     });
 
     // Frontend emits: fe-request-next-user
