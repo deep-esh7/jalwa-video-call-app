@@ -19,7 +19,11 @@ class ConnectionHandler {
       const availableUserIds = await RedisService.getAllAvailableUserIds();
       
       if (availableUserIds.length === 0) {
-        this.io.emit(SOCKET_EVENTS.BE_NO_USERS_AVAILABLE);
+        this.io.emit(SOCKET_EVENTS.BE_AVAILABLE_USERS, {
+          count: 0,
+          users: [],
+          message: '0 users available',
+        });
         logger.debug('No users available, broadcasted empty list');
         return;
       }
@@ -40,8 +44,9 @@ class ConnectionHandler {
 
       // Broadcast to all connected clients
       this.io.emit(SOCKET_EVENTS.BE_AVAILABLE_USERS, {
-        users: usersWithStatus,
         count: usersWithStatus.length,
+        users: usersWithStatus,
+        message: `${usersWithStatus.length} users available`,
       });
 
       logger.info(`📢 Broadcasted ${usersWithStatus.length} available users to all clients`);
