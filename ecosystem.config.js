@@ -1,3 +1,21 @@
+const dotenv = require('dotenv');
+const fs = require('fs');
+const path = require('path');
+
+// Helper function to load env file
+function loadEnvFile(envFile) {
+  const envPath = path.resolve(__dirname, envFile);
+  if (fs.existsSync(envPath)) {
+    return dotenv.parse(fs.readFileSync(envPath));
+  }
+  return {};
+}
+
+// Load environment-specific configurations
+const envLocal = { NODE_ENV: 'local', ...loadEnvFile('.env.local') };
+const envDev = { NODE_ENV: 'dev', ...loadEnvFile('.env.dev') };
+const envProd = { NODE_ENV: 'prod', ...loadEnvFile('.env.prod') };
+
 module.exports = {
   apps: [{
     name: 'jalwa-server',
@@ -5,15 +23,10 @@ module.exports = {
     instances: 1,
     exec_mode: 'fork',
 
-    env_local: {
-      NODE_ENV: 'local'
-    },
-    env_development: {
-      NODE_ENV: 'dev' 
-    },
-    env_production: {
-      NODE_ENV: 'prod'
-    },
+    // Environment-specific configurations with all variables loaded
+    env_local: envLocal,
+    env_development: envDev,
+    env_production: envProd,
 
     autorestart: true,
     watch: false,
