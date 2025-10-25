@@ -167,11 +167,12 @@ class CallInvitationHandler {
           startTime: new Date(),
         });
 
-        // Notify both users that call is ready
+        // Notify both users that call is ready. Provide explicit initiator identity.
         this.io.to(roomId).emit(SOCKET_EVENTS.BE_CALL_READY, {
           roomId,
           callId: call.id,
-          isInitiator: (socketId) => socketId === this.userSockets.get(callerId),
+          initiatorUserId: callerId,
+          initiatorSocketId: this.userSockets.get(callerId),
           participants: [
             { userId: callerId, socketId: this.userSockets.get(callerId) },
             { userId: receiverId, socketId: this.userSockets.get(receiverId) },

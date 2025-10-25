@@ -134,6 +134,35 @@ function initializeSocketHandlers(io) {
     socket.on(SOCKET_EVENTS.DISCONNECT, () => {
       connectionHandler.handleDisconnect(socket);
     });
+
+    // Catch-all logger for any events not explicitly handled above
+    const knownEvents = new Set([
+      SOCKET_EVENTS.FE_USER_AVAILABLE,
+      SOCKET_EVENTS.FE_USER_UNAVAILABLE,
+      SOCKET_EVENTS.FE_GET_AVAILABLE_USER,
+      SOCKET_EVENTS.FE_REQUEST_NEXT_USER,
+      SOCKET_EVENTS.FE_TOGGLE_MATCHING,
+      SOCKET_EVENTS.FE_MATCH_REQUEST,
+      SOCKET_EVENTS.FE_SEND_CALL_INVITATION,
+      SOCKET_EVENTS.FE_ACCEPT_CALL_INVITATION,
+      SOCKET_EVENTS.FE_REJECT_CALL_INVITATION,
+      SOCKET_EVENTS.FE_CANCEL_CALL_INVITATION,
+      SOCKET_EVENTS.FE_END_CALL,
+      SOCKET_EVENTS.FE_OFFER,
+      SOCKET_EVENTS.FE_ANSWER,
+      SOCKET_EVENTS.FE_ICE_CANDIDATE,
+      SOCKET_EVENTS.DISCONNECT,
+    ]);
+
+    socket.onAny((event, ...args) => {
+      if (!knownEvents.has(event)) {
+        try {
+          logger.debug(`📥 [UNHANDLED EVENT] ${event} from ${socket.id}: ${JSON.stringify(args && args[0])}`);
+        } catch (_) {
+          logger.debug(`📥 [UNHANDLED EVENT] ${event} from ${socket.id} (payload not JSON-serializable)`);
+        }
+      }
+    });
   });
 
   logger.info('✅ Socket.io handlers initialized with Flutter-compatible events');
