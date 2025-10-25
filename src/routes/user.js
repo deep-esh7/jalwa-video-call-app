@@ -7,6 +7,9 @@ const { UserController } = require('../controllers');
 // This endpoint should be used for authentication flow
 router.get('/me', UserController.getCurrentUser);
 
+// Update user profile (requires authentication)
+router.put('/profile', UserController.updateProfile);
+
 // Get user from Firebase (legacy/debugging)
 router.get('/:userId', UserController.getUserFromFirebase);
 

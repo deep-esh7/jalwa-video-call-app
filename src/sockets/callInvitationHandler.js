@@ -93,16 +93,20 @@ class CallInvitationHandler {
         status: 'pending',
       });
 
-      // Get caller info
+      // Get caller info with full profile details
       const callerInfo = await UserService.getUserById(fromUserId);
 
-      // Notify receiver
+      // Notify receiver with complete caller profile
       this.io.to(receiverSocketId).emit(SOCKET_EVENTS.BE_CALL_INVITATION_RECEIVED, {
         invitationId,
         from: {
           userId: fromUserId,
           name: callerInfo?.name || fromUserName || 'Unknown User',
           photoURL: callerInfo?.photoURL || null,
+          gender: callerInfo?.gender || null,
+          role: callerInfo?.role || null,
+          phone: callerInfo?.phone || null,
+          email: callerInfo?.email || null,
         },
       });
 

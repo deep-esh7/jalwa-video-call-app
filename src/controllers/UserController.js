@@ -182,6 +182,78 @@ class UserController {
   // from available list when they disconnect via socket
 
   /**
+   * Update user profile
+   */
+  async updateProfile(req, res, next) {
+    try {
+      const authHeader = req.headers.authorization;
+      logger.info('Received request to update user profile');
+
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        logger.warn('No Bearer token provided for profile update');
+        return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+          success: false,
+          message: 'No token provided',
+        });
+      }
+
+      const idToken = authHeader.split('Bearer ')[1];
+      
+      // Get user from token
+      const user = await getUserFromToken(idToken);
+      if (!user) {
+        throw new Error('Failed to authenticate user');
+      }
+
+      // Extract allowed fields from request body
+      const { name, photoURL, gender, phone } = req.body;
+
+      // Validate inputs
+      const updates = {};
+      if (name !== undefined) updates.name = name;
+      if (photoURL !== undefined) updates.photoURL = photoURL;
+      if (gender !== undefined) updates.gender = gender;
+      if (phone !== undefined) updates.phone = phone;
+
+      // Check if there are any updates
+      if (Object.keys(updates).length === 0) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          message: 'No valid fields to update',
+        });
+      }
+
+      // Update user profile
+      const updatedUser = await UserService.updateUser(user.id, updates);
+
+      logger.info(`✅ Profile updated for user: ${user.id}`);
+
+      return res.json({
+        success: true,
+        message: 'Profile updated successfully',
+        data: {
+          id: updatedUser.id,
+          name: updatedUser.name,
+          email: updatedUser.email,
+          photoURL: updatedUser.photoURL,
+          phoneNumber: updatedUser.phone,
+          gender: updatedUser.gender,
+          role: updatedUser.role,
+          updatedAt: updatedUser.updatedAt,
+        },
+      });
+    } catch (error) {
+      logger.error(`Failed to update profile: ${error.message}`);
+      const statusCode = error.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR;
+      res.status(statusCode).json({
+        success: false,
+        message: 'Failed to update profile',
+        error: process.env.NODE_ENV === 'prod' ? 'Profile update error' : error.message,
+      });
+    }
+  }
+
+  /**
    * Delete all users (admin only - for development)
    */
   async deleteAllUsers(req, res, next) {
