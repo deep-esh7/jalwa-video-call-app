@@ -16,8 +16,10 @@ router.get('/:id', UserController.getUserById);
 // Delete all users (admin only - for development)
 router.delete('/all', UserController.deleteAllUsers);
 
-// Note: No offline endpoint - users are automatically removed from
-// available list when they disconnect via socket
+// Update user profile (requires authentication)
+router.put('/profile', UserController.updateProfile);
+
+// Get user from Firebase (legacy/debugging)
+router.get('/:userId', UserController.getUserFromFirebase);
 
 module.exports = router;
-

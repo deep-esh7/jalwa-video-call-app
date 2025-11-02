@@ -4,13 +4,11 @@ const router = express.Router();
 
 // Import route modules
 const healthRoutes = require('./health');
-const usersRoutes = require('./users');
-const userRoutes = require('./user');
+const usersRoutes = require('./users')
 
 // Mount routes
 router.use('/health', healthRoutes);
 router.use('/api/users', usersRoutes);
-router.use('/api/user', userRoutes);
 
 module.exports = router;
 
