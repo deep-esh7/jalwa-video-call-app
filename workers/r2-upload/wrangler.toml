@@ -1,0 +1,10 @@
+name = "r2-uploader"
+main = "src/index.js"
+compatibility_date = "2024-04-05"
+
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "jalwa-db-dev"
+
+[vars]
+R2_PUBLIC_BASE_URL = "https://pub-c588de21779a4358bf187eefc6810fd8.r2.dev"
