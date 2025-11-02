@@ -96,6 +96,8 @@ async function getUserFromToken(idToken) {
       // Add any other default fields you need
       gender: 'MALE', // Default gender
       role: 'USER',   // Default role
+      age: null,
+      bio: null,
     };
     
     // 6. Save to database

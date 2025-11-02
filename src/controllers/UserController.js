@@ -50,6 +50,8 @@ class UserController {
           gender: user.gender,
           createdAt: user.createdAt,
           updatedAt: user.updatedAt,
+          age: user.age,
+          bio: user.bio,
         },
       });
     } catch (error) {
@@ -206,7 +208,7 @@ class UserController {
       }
 
       // Extract allowed fields from request body
-      const { name, photoURL, gender, phone } = req.body;
+      const { name, photoURL, gender, phone, age, bio} = req.body;
 
       // Validate inputs
       const updates = {};
@@ -214,6 +216,8 @@ class UserController {
       if (photoURL !== undefined) updates.photoURL = photoURL;
       if (gender !== undefined) updates.gender = gender;
       if (phone !== undefined) updates.phone = phone;
+      if (age !== undefined) updates.age = age;
+      if (bio !== undefined) updates.bio = bio;
 
       // Check if there are any updates
       if (Object.keys(updates).length === 0) {
@@ -238,6 +242,8 @@ class UserController {
           photoURL: updatedUser.photoURL,
           phoneNumber: updatedUser.phone,
           gender: updatedUser.gender,
+          age: updatedUser.age,
+          bio: updatedUser.bio,
           role: updatedUser.role,
           updatedAt: updatedUser.updatedAt,
         },

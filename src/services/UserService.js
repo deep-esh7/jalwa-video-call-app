@@ -50,12 +50,36 @@ class UserService {
           phone: true,
           createdAt: true,
           updatedAt: true,
+          age: true,
+          bio: true,
         },
       });
 
       return user;
     } catch (error) {
       logger.error(`Failed to get user by ID: ${error.message}`);
+      throw error;
+    }
+  }
+  
+
+   async createUser(userData) {
+    try {
+      return await prisma.user.create({
+        data: {
+          id: userData.id,
+          name: userData.name,
+          email: userData.email,
+          photoURL: userData.photoURL,
+          phone: userData.phone,
+          gender: userData.gender,
+          role: userData.role || 'USER',
+          age: userData.age || null,
+          bio: userData.bio || null,
+        },
+      });
+    } catch (error) {
+      logger.error(`Failed to create user: ${error.message}`);
       throw error;
     }
   }
