@@ -16,7 +16,7 @@ router.get('/:id', UserController.getUserById);
 // Delete all users (admin only - for development)
 router.delete('/all', UserController.deleteAllUsers);
 
-// Update user profile (requires authentication)
+// Update user profile (requires    authentication)
 router.put('/profile', UserController.updateProfile);
 
 // Get user from Firebase (legacy/debugging)

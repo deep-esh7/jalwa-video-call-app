@@ -67,24 +67,48 @@ const authenticate = async (req, res, next) => {
 /**
  * Get or create user from Firebase token
  */
-const getUserFromToken = async (idToken) => {
+async function getUserFromToken(idToken) {
   try {
-    logger.info('🔐 Verifying Firebase token...');
-    const decodedToken = await verifyAndDecodeToken(idToken);
+    // 1. Verify the Firebase ID token
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const firebaseUid = decodedToken.uid;
     
-    logger.info('✅ Token verified, upserting user to database...');
-    const user = await UserService.upsertUserFromToken(decodedToken);
+    // 2. First, try to get the user from the database
+    let user = await UserService.getUserById(firebaseUid);
     
-    logger.info('✅ User retrieved/created successfully');
+    // 3. If user exists in database, return it
+    if (user) {
+      logger.debug(`User found in database: ${firebaseUid}`);
+      return user;
+    }
+    
+    // 4. If not in database, fetch from Firebase
+    logger.debug(`User not in database, fetching from Firebase: ${firebaseUid}`);
+    const firebaseUser = await admin.auth().getUser(firebaseUid);
+    
+    // 5. Create a new user in the database
+    const newUser = {
+      id: firebaseUser.uid,
+      name: firebaseUser.displayName || 'Anonymous',
+      email: firebaseUser.email || null,
+      photoURL: firebaseUser.photoURL || null,
+      phone: firebaseUser.phoneNumber || null,
+      // Add any other default fields you need
+      gender: 'MALE', // Default gender
+      role: 'USER',   // Default role
+    };
+    
+    // 6. Save to database
+    user = await UserService.createUser(newUser);
+    logger.info(`Created new user in database: ${firebaseUid}`);
+    
     return user;
   } catch (error) {
-    logger.error('❌ Failed to get user from token:', {
-      message: error.message,
-      stack: error.stack,
-    });
+    logger.error('Error in getUserFromToken:', error);
     throw error;
   }
-};
+}
+
 
 module.exports = {
   authenticate,

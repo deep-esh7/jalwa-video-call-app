@@ -10,62 +10,60 @@ class UserController {
   /**
    * Get current user profile (from Firebase token)
    */
-  async getCurrentUser(req, res, next) {
-    try {
-      logger.info('Received request to /api/user/me');
+ async getCurrentUser(req, res, next) {
+  try {
+    logger.info('Received request to /api/user/me');
 
-      const authHeader = req.headers.authorization;
-      logger.debug('Auth header:', authHeader ? 'Present' : 'Missing');
-
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        logger.warn('No Bearer token provided');
-        return res.status(HTTP_STATUS.UNAUTHORIZED).json({
-          success: false,
-          message: 'No token provided',
-        });
-      }
-
-      const idToken = authHeader.split('Bearer ')[1];
-      logger.debug('Extracted token');
-
-      // Get or create user from token
-      const user = await getUserFromToken(idToken);
-
-      if (!user) {
-        throw new Error('Failed to get or create user');
-      }
-
-      // NOTE: User is NOT marked online here
-      // User will be marked online when they connect via socket (fe-user-available event)
-      logger.info(`✅ Fetched/created user: ${user.id}`);
-
-      return res.json({
-        success: true,
-        data: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          photoURL: user.photoURL,
-          phoneNumber: user.phone,
-          gender: user.gender,
-          createdAt: user.createdAt,
-          updatedAt: user.updatedAt,
-        },
-      });
-    } catch (error) {
-      logger.error('Auth error in /api/user/me:', {
-        error: error.message,
-        stack: error.stack,
-      });
-
-      const statusCode = error.statusCode || HTTP_STATUS.UNAUTHORIZED;
-      res.status(statusCode).json({
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
         success: false,
-        message: 'Authentication failed',
-        error: process.env.NODE_ENV === 'prod' ? 'Authentication error' : error.message,
+        message: 'No token provided',
       });
     }
+
+    const idToken = authHeader.split('Bearer ')[1];
+    
+    // This will now:
+    // 1. Check database first
+    // 2. If not found, get from Firebase and save to database
+    // 3. Return the user
+    const user = await getUserFromToken(idToken);
+
+    if (!user) {
+      throw new Error('Failed to get or create user');
+    }
+
+    logger.info(`✅ Fetched user: ${user.id}`);
+
+    return res.json({
+      success: true,
+      data: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        photoURL: user.photoURL,
+        phoneNumber: user.phone,
+        gender: user.gender,
+        role: user.role,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      },
+    });
+  } catch (error) {
+    logger.error('Error in getCurrentUser:', {
+      error: error.message,
+      stack: error.stack,
+    });
+
+    const statusCode = error.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR;
+    return res.status(statusCode).json({
+      success: false,
+      message: 'Failed to fetch user data',
+      error: process.env.NODE_ENV === 'prod' ? 'Internal server error' : error.message,
+    });
   }
+}
 
   /**
    * Get all users with their online/offline status
