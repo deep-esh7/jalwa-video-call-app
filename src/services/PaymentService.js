@@ -258,7 +258,7 @@ class PaymentService {
           data: { 
             status: 'failed',
             metadata: {
-              ...(payment.metadata as object || {}),
+              ...(payment.metadata || {}),
               failureReason: paymentIntent.last_payment_error?.message || 'Unknown error',
             },
           },
