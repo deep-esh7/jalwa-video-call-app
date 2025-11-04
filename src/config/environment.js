@@ -8,6 +8,9 @@ const config = {
   databaseUrl: process.env.DATABASE_URL,
   redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
   
+  // R2 Upload Worker
+  r2WorkerUrl: process.env.R2_WORKER_URL || 'https://r2-uploader.jalwa-app.workers.dev',
+  
   // ICE Servers for WebRTC
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },

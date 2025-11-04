@@ -59,10 +59,11 @@ model Call {
 }
 
 model Gift {
-  id   String            @id @default(uuid())
-  name String
-  cost Int
-  sent GiftTransaction[]
+  id       String            @id @default(uuid())
+  name     String
+  cost     Int
+  imageUrl String?
+  sent     GiftTransaction[]
 }
 
 model GiftTransaction {
