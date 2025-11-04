@@ -37,13 +37,42 @@ model Wallet {
 }
 
 model Transaction {
-  id        String   @id @default(uuid())
-  userId    String
-  type      String
-  amount    Int
-  status    String
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id])
+  id              String   @id @default(uuid())
+  userId          String
+  type            String   // "deposit", "withdrawal", "call_charge", "gift_sent", "gift_received", "refund"
+  amount          Int      // Amount in coins
+  balanceBefore   Int      // Balance before transaction
+  balanceAfter    Int      // Balance after transaction
+  status          String   // "pending", "completed", "failed", "cancelled"
+  description     String?  // Transaction description
+  metadata        Json?    // Additional metadata (paymentId, giftId, callId, etc.)
+  createdAt       DateTime @default(now())
+  user            User     @relation(fields: [userId], references: [id])
+  
+  @@index([userId, createdAt])
+  @@index([type])
+  @@index([status])
+}
+
+model Payment {
+  id                String   @id @default(uuid())
+  userId            String
+  stripePaymentId   String?  @unique // Stripe Payment Intent ID
+  stripeSessionId   String?  @unique // Stripe Checkout Session ID
+  amount            Float    // Amount in USD
+  currency          String   @default("usd")
+  coins             Int      // Coins to be credited
+  status            String   // "pending", "succeeded", "failed", "cancelled", "refunded"
+  paymentMethod     String?  // "card", "bank_transfer", etc.
+  stripeCustomerId  String?  // Stripe Customer ID
+  metadata          Json?    // Additional Stripe metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([status])
+  @@index([stripePaymentId])
+  @@index([stripeSessionId])
 }
 
 model Call {

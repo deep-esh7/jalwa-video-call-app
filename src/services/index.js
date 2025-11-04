@@ -5,5 +5,7 @@ module.exports = {
   RedisService: require('./RedisService'),
   MatchingService: require('./MatchingService'),
   GiftService: require('./GiftService'),
+  PaymentService: require('./PaymentService'),
+  WalletService: require('./WalletService'),
 };
 
