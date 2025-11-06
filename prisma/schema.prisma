@@ -125,3 +125,17 @@ model AppConfig {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+model CoinBundle {
+  id          String   @id @default(uuid())
+  name        String
+  coins       Int      // Number of coins in bundle
+  price       Float    // Price in USD
+  description String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([isActive, sortOrder])
+}

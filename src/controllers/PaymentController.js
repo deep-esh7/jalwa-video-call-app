@@ -25,11 +25,11 @@ class PaymentController {
   }
 
   /**
-   * Dummy deposit endpoint (for testing without Stripe)
-   * POST /api/payments/deposit
-   * Body: { amount }
+   * Purchase coin bundle
+   * POST /api/payments/purchase
+   * Body: { bundleId }
    */
-  async dummyDeposit(req, res, next) {
+  async purchaseBundle(req, res, next) {
     try {
       const authHeader = req.headers.authorization;
       
@@ -50,25 +50,32 @@ class PaymentController {
         });
       }
 
-      const { amount } = req.body;
+      const { bundleId } = req.body;
 
-      if (!amount) {
+      if (!bundleId) {
         return res.status(HTTP_STATUS.BAD_REQUEST).json({
           success: false,
-          message: 'Amount is required',
+          message: 'Bundle ID is required',
         });
       }
 
-      const amountNumber = parseFloat(amount);
-      if (isNaN(amountNumber) || amountNumber <= 0) {
-        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      // Get bundle details
+      const BundleService = require('../services/BundleService');
+      const bundle = await BundleService.getBundleById(bundleId);
+
+      if (!bundle) {
+        return res.status(HTTP_STATUS.NOT_FOUND).json({
           success: false,
-          message: 'Amount must be a positive number',
+          message: 'Bundle not found',
         });
       }
 
-      // Convert amount to coins (1 USD = 1 coin)
-      const coins = Math.floor(amountNumber);
+      if (!bundle.isActive) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          message: 'Bundle is not available for purchase',
+        });
+      }
 
       // Get or create wallet
       await WalletService.getOrCreateWallet(user.id);
@@ -76,30 +83,37 @@ class PaymentController {
       // Credit coins to wallet
       const result = await WalletService.credit(
         user.id,
-        coins,
+        bundle.coins,
         'deposit',
-        `Dummy deposit: $${amountNumber} = ${coins} coins`,
+        `Purchased bundle: ${bundle.name}`,
         {
-          amountUsd: amountNumber,
-          method: 'dummy',
-          timestamp: new Date().toISOString(),
+          bundleId: bundle.id,
+          bundleName: bundle.name,
+          amountUsd: bundle.price,
+          coins: bundle.coins,
+          purchaseDate: new Date().toISOString(),
         }
       );
 
-      logger.info(`✅ Dummy deposit: User ${user.id} credited ${coins} coins. New balance: ${result.wallet.balance}`);
+      logger.info(`✅ Bundle purchase: User ${user.id} purchased ${bundle.name} (${bundle.coins} coins for $${bundle.price}). New balance: ${result.wallet.balance}`);
 
       return res.json({
         success: true,
-        message: 'Deposit successful',
+        message: 'Bundle purchased successfully',
         data: {
-          amountUsd: amountNumber,
-          coinsAdded: coins,
+          bundle: {
+            id: bundle.id,
+            name: bundle.name,
+            coins: bundle.coins,
+            price: bundle.price,
+          },
+          coinsAdded: bundle.coins,
           newBalance: result.wallet.balance,
           transaction: result.transaction,
         },
       });
     } catch (error) {
-      logger.error('Error processing dummy deposit:', error);
+      logger.error('Error processing bundle purchase:', error);
       next(error);
     }
   }

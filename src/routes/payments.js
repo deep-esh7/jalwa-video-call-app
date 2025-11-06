@@ -7,7 +7,7 @@ const PaymentController = require('../controllers/PaymentController');
 router.get('/info', PaymentController.getPaymentInfo);
 
 // Authenticated endpoints
-router.post('/deposit', PaymentController.dummyDeposit); // Dummy deposit endpoint (no Stripe)
+router.post('/purchase', PaymentController.purchaseBundle); // Purchase a coin bundle
 router.get('/wallet', PaymentController.getWallet);
 router.get('/transactions', PaymentController.getTransactionHistory);
 
