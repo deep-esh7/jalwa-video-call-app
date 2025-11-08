@@ -29,8 +29,9 @@ const config = {
   
   // CORS settings
   cors: {
-    origin: '*',
+    origin: ['https://jalwa-online-video-chat.web.app', '*'],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
   },
 };
 
