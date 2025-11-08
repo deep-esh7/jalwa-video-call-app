@@ -4,5 +4,6 @@ module.exports = {
   HealthController: require('./HealthController'),
   GiftController: require('./GiftController'),
   PaymentController: require('./PaymentController'),
+  BundleController: require('./BundleController'),
 };
 

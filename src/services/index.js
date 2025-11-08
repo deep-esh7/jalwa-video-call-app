@@ -7,5 +7,6 @@ module.exports = {
   GiftService: require('./GiftService'),
   PaymentService: require('./PaymentService'),
   WalletService: require('./WalletService'),
+  BundleService: require('./BundleService'),
 };
 
