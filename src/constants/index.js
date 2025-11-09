@@ -30,6 +30,12 @@ const SOCKET_EVENTS = {
   FE_ANSWER: 'fe-answer',
   FE_ICE_CANDIDATE: 'fe-ice-candidate',
   
+  // Frontend → Backend (Chat)
+  FE_JOIN_CHAT: 'fe-join-chat',
+  FE_SEND_MESSAGE: 'fe-send-message',
+  FE_TYPING: 'fe-typing',
+  FE_STOP_TYPING: 'fe-stop-typing',
+  
   // Backend → Frontend (User Lists & Status)
   BE_AVAILABLE_USERS: 'be-available-users',
   BE_AVAILABLE_USERS_COUNT: 'be-available-users-count',
@@ -57,6 +63,12 @@ const SOCKET_EVENTS = {
   BE_OFFER: 'be-offer',
   BE_ANSWER: 'be-answer',
   BE_ICE_CANDIDATE: 'be-ice-candidate',
+  
+  // Backend → Frontend (Chat)
+  BE_JOINED_CHAT: 'be-joined-chat',
+  BE_NEW_MESSAGE: 'be-new-message',
+  BE_USER_TYPING: 'be-user-typing',
+  BE_USER_STOPPED_TYPING: 'be-user-stopped-typing',
   
   // Backend → Frontend (System)
   BE_JOINED: 'be-joined',

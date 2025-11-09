@@ -8,6 +8,7 @@ const CallInvitationHandler = require('./callInvitationHandler');
 const CallHandler = require('./callHandler');
 const WebRTCHandler = require('./webrtcHandler');
 const MatchingHandler = require('./matchingHandler');
+const ChatHandler = require('./chatHandler');
 
 // In-memory state
 const socketConnections = new Map(); // socketId -> userId
@@ -21,12 +22,15 @@ const userSockets = new Map();       // userId -> socketId
  * - be- prefix: Backend emits (Server → Client)
  */
 function initializeSocketHandlers(io) {
-  // Create handler instances
+  // Create handler instances that don't need socket instance
   const connectionHandler = new ConnectionHandler(io, socketConnections, userSockets);
   const callInvitationHandler = new CallInvitationHandler(io, socketConnections, userSockets, activeRooms);
   const callHandler = new CallHandler(io, activeRooms);
   const webrtcHandler = new WebRTCHandler();
   const matchingHandler = new MatchingHandler(io, socketConnections, userSockets, activeRooms);
+  
+  // Chat handler will be created per socket connection
+  let chatHandler;
 
   // Cleanup expired invitations every minute
   setInterval(() => {
@@ -36,6 +40,9 @@ function initializeSocketHandlers(io) {
   // Handle new connections
   io.on(SOCKET_EVENTS.CONNECTION, (socket) => {
     logger.info(`🔌 Socket connected: ${socket.id}`);
+    
+    // Initialize chat handler for this socket connection
+    chatHandler = new ChatHandler(io, socket, userSockets);
 
     // =====================================================================
     // USER PRESENCE EVENTS
@@ -128,11 +135,39 @@ function initializeSocketHandlers(io) {
     });
 
     // =====================================================================
+    // CHAT EVENTS
+    // =====================================================================
+    
+    // Frontend emits: fe-join-chat
+    socket.on(SOCKET_EVENTS.FE_JOIN_CHAT, (data) => {
+      chatHandler.handleJoinChat(socket, data);
+    });
+
+    // Frontend emits: fe-send-message
+    socket.on(SOCKET_EVENTS.FE_SEND_MESSAGE, (data) => {
+      chatHandler.handleSendMessage(socket, data);
+    });
+
+    // Frontend emits: fe-typing
+    socket.on(SOCKET_EVENTS.FE_TYPING, (data) => {
+      chatHandler.handleTyping(socket, data);
+    });
+
+    // Frontend emits: fe-stop-typing
+    socket.on(SOCKET_EVENTS.FE_STOP_TYPING, (data) => {
+      chatHandler.handleStopTyping(socket, data);
+    });
+
+    // =====================================================================
     // DISCONNECT EVENT
     // =====================================================================
     
     socket.on(SOCKET_EVENTS.DISCONNECT, () => {
+      logger.info(`🔌 Socket disconnected: ${socket.id}`);
       connectionHandler.handleDisconnect(socket);
+      callInvitationHandler.handleDisconnect(socket);
+      matchingHandler.handleDisconnect(socket);
+      chatHandler.handleDisconnect(socket);
     });
 
     // Catch-all logger for any events not explicitly handled above
