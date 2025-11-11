@@ -219,8 +219,17 @@ class ChatHandler {
         status         // Frontend status
       } = incomingMessage;
       
-      // Ensure senderId matches the current user for security
-      if (senderId !== this.userId) {
+      // Log the sender ID and current user ID for debugging
+      logger.debug(`Message from sender: ${senderId}, Current user: ${this.userId}`);
+      
+      // For anonymous users, always use their assigned anonymous ID
+      if (this.socket.user?.isAnonymous) {
+        logger.debug(`Anonymous user ${this.userId} sending message`);
+        // Override any provided senderId with the actual anonymous ID
+        incomingMessage.senderId = this.userId;
+      } 
+      // For authenticated users, verify the sender ID matches the current user
+      else if (senderId !== this.userId) {
         logger.warn(`User ${this.userId} attempted to send message as ${senderId}`);
         throw new Error('Invalid sender ID');
       }
@@ -296,33 +305,40 @@ class ChatHandler {
       // Log server-side message handling
       logger.info(`Message delivered to room ${this.currentRoom} from user ${this.userId}`);
 
-      // Broadcast to room
-      logger.debug(`Broadcasting message to room ${this.currentRoom}...`);
-      this.io.to(this.currentRoom).emit(SOCKET_EVENTS.BE_NEW_MESSAGE, message);
-      logger.debug('Message broadcast complete');
-
       // Prepare response with frontend-compatible format
       const response = {
         success: true,
         chatId: this.currentRoom,
-        messageId: message._id || message.id,
+        messageId: message._id?.toString() || message.id,
         content: message.content,
-        senderId: message.userId || this.userId,
-        timestamp: message.createdAt || new Date().toISOString(),
+        senderId: message.userId?.toString() || this.userId,
+        timestamp: message.createdAt?.toISOString() || new Date().toISOString(),
         status: 'delivered',
-        type: message.type || 'text'
+        type: message.type || 'text',
+        metadata: message.metadata || {}
       };
 
       console.log('📤 Sending confirmation:', response);
       
-      // Ensure we have a valid event name
-      const eventName = SOCKET_EVENTS.BE_NEW_MESSAGE || 'be:new-message';
+      // Ensure we have valid event names
+      const newMessageEvent = SOCKET_EVENTS.BE_NEW_MESSAGE || 'be:new-message';
+      const messageSentEvent = SOCKET_EVENTS.BE_MESSAGE_SENT || 'be:message-sent';
       
-      // Send confirmation to sender with the correct event name
-      this.socket.emit(SOCKET_EVENTS.BE_MESSAGE_SENT || 'be:message-sent', response);
+      // Log before sending
+      logger.debug(`📡 Broadcasting message to room ${this.currentRoom}...`);
       
-      // Also emit to the room (for other participants) with the correct event name
-      this.socket.to(this.currentRoom).emit(eventName, response);
+      // 1. Send confirmation to sender that their message was sent successfully
+      this.socket.emit(messageSentEvent, response);
+      
+      // 2. Broadcast to all other participants in the room (except sender)
+      this.socket.to(this.currentRoom).emit(newMessageEvent, response);
+      
+      // 3. Log after broadcasting
+      logger.debug(`✅ Message broadcast to room ${this.currentRoom} complete`);
+      
+      // Debug: Log all rooms and sockets
+      const roomSockets = await this.io.in(this.currentRoom).fetchSockets();
+      logger.debug(`📊 Room ${this.currentRoom} has ${roomSockets.length} connected sockets`);
       
       logger.debug('=== MESSAGE DEBUG END (Success) ===\n');
     } catch (error) {
