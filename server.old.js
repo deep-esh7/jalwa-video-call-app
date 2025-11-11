@@ -431,7 +431,7 @@ async function findPartnerForUser(requesterId) {
 // Socket Handling
 // =============================
 io.on('connection', (socket) => {
-  logger.info(`Socket connected: ${socket.id}`);
+  logger.info(`🔌 New connection: ${socket.id}`);
 
   socket.on('user-available', async ({ userId }) => {
     try {

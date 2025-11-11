@@ -5,7 +5,7 @@ const { Schema } = mongoose;
 // Message schema
 const messageSchema = new Schema({
   roomId: { 
-    type: Schema.Types.ObjectId, 
+    type: process.env.NODE_ENV !== 'production' ? String : Schema.Types.ObjectId,
     ref: 'ChatRoom',
     required: true 
   },
@@ -34,6 +34,7 @@ const messageSchema = new Schema({
 
 // Chat room schema
 const chatRoomSchema = new Schema({
+  _id: process.env.NODE_ENV !== 'production' ? String : Schema.Types.ObjectId,
   name: String,
   isGroup: {
     type: Boolean,

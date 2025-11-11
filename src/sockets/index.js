@@ -10,10 +10,12 @@ const WebRTCHandler = require('./webrtcHandler');
 const MatchingHandler = require('./matchingHandler');
 const ChatHandler = require('./chatHandler');
 
+
 // In-memory state
 const socketConnections = new Map(); // socketId -> userId
 const activeRooms = new Map();       // roomId -> { participants, callId, startTime }
 const userSockets = new Map();       // userId -> socketId
+const chatSockets = new Map();       // userId -> socketId
 
 /**
  * Initialize Socket.io handlers with Flutter-compatible event names
@@ -42,7 +44,7 @@ function initializeSocketHandlers(io) {
     logger.info(`🔌 Socket connected: ${socket.id}`);
     
     // Initialize chat handler for this socket connection
-    chatHandler = new ChatHandler(io, socket, userSockets);
+    chatHandler = new ChatHandler(io, socket, userSockets, chatSockets);
 
     // =====================================================================
     // USER PRESENCE EVENTS
@@ -140,22 +142,22 @@ function initializeSocketHandlers(io) {
     
     // Frontend emits: fe-join-chat
     socket.on(SOCKET_EVENTS.FE_JOIN_CHAT, (data) => {
-      chatHandler.handleJoinChat(socket, data);
+      chatHandler.joinRoom(data.roomId);
     });
 
     // Frontend emits: fe-send-message
     socket.on(SOCKET_EVENTS.FE_SEND_MESSAGE, (data) => {
-      chatHandler.handleSendMessage(socket, data);
+      chatHandler.sendMessage(data);
     });
 
     // Frontend emits: fe-typing
-    socket.on(SOCKET_EVENTS.FE_TYPING, (data) => {
-      chatHandler.handleTyping(socket, data);
+    socket.on(SOCKET_EVENTS.FE_TYPING, () => {
+      chatHandler.handleTyping(true);
     });
 
     // Frontend emits: fe-stop-typing
-    socket.on(SOCKET_EVENTS.FE_STOP_TYPING, (data) => {
-      chatHandler.handleStopTyping(socket, data);
+    socket.on(SOCKET_EVENTS.FE_STOP_TYPING, () => {
+      chatHandler.handleTyping(false);
     });
 
     // =====================================================================
@@ -187,6 +189,12 @@ function initializeSocketHandlers(io) {
       SOCKET_EVENTS.FE_ANSWER,
       SOCKET_EVENTS.FE_ICE_CANDIDATE,
       SOCKET_EVENTS.DISCONNECT,
+      SOCKET_EVENTS.FE_JOIN_CHAT,
+      SOCKET_EVENTS.FE_SEND_MESSAGE,
+      SOCKET_EVENTS.FE_TYPING,
+      SOCKET_EVENTS.FE_STOP_TYPING,
+      SOCKET_EVENTS.FE_JOIN_CHAT,
+      
     ]);
 
     socket.onAny((event, ...args) => {

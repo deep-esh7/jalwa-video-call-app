@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+    <h1>WebSocket Connection Test</h1>
+    <div id="status" style="padding: 10px; margin: 10px; border: 1px solid #ccc;">Connecting to WebSocket server...</div>
+    <div id="messages" style="margin-top: 20px; padding: 10px; border: 1px solid #eee; height: 300px; overflow-y: scroll;"></div>
+
+    <script>
+        const statusDiv = document.getElementById('status');
+        const messagesDiv = document.getElementById('messages');
+        
+        // Connect to the WebSocket server
+        const socket = io('http://localhost:4000', {
+            transports: ['websocket'],
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000,
+        });
+
+        // Connection established
+        socket.on('connect', () => {
+            logMessage('✅ Connected to WebSocket server!');
+            statusDiv.textContent = '✅ Connected to WebSocket server!';
+            statusDiv.style.color = 'green';
+            
+            // Test sending a message after 1 second
+            setTimeout(() => {
+                logMessage('Sending test message...');
+                socket.emit('fe-user-available', { 
+                    userId: 'test-user-123',
+                    userType: 'test',
+                    isAvailable: true,
+                    preferences: {}
+                });
+            }, 1000);
+        });
+
+        // Handle disconnection
+        socket.on('disconnect', (reason) => {
+            logMessage(`❌ Disconnected: ${reason}`);
+            statusDiv.textContent = `❌ Disconnected: ${reason}`;
+            statusDiv.style.color = 'red';
+        });
+
+        // Handle errors
+        socket.on('connect_error', (error) => {
+            logMessage(`❌ Connection Error: ${error.message}`);
+            statusDiv.textContent = `❌ Connection Error: ${error.message}`;
+            statusDiv.style.color = 'red';
+        });
+
+        // Handle incoming messages
+        socket.onAny((event, ...args) => {
+            logMessage(`📥 Received event '${event}': ${JSON.stringify(args)}`);
+        });
+
+        // Log messages to the page
+        function logMessage(message) {
+            const messageElement = document.createElement('div');
+            messageElement.style.padding = '5px';
+            messageElement.style.borderBottom = '1px solid #eee';
+            messageElement.textContent = `[${new Date().toISOString()}] ${message}`;
+            messagesDiv.appendChild(messageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight; // Auto-scroll to bottom
+            console.log(message);
+        }
+    </script>
+</body>
+</html>

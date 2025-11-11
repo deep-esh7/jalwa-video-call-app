@@ -2,28 +2,65 @@
 const { SOCKET_EVENTS } = require('../constants');
 const chatService = require('../services/chatService');
 const logger = require('../config/logger');
+const redis = require('../config/redis');
+
+// Helper function to generate a unique message ID
+const generateMessageId = (message) => {
+  return `msg:${message.chatId || 'global'}:${message.senderId || 'anon'}:${message.timestamp || Date.now()}`;
+};
 
 class ChatHandler {
   constructor(io, socket, userSockets) {
     this.io = io;
     this.socket = socket;
     this.userSockets = userSockets;
-    this.userId = socket.user?.id;
+    
+    // Handle anonymous users
+    if (!socket.user) {
+      socket.user = {
+        id: `anon-${Math.random().toString(36).substr(2, 9)}`,
+        name: 'Anonymous User',
+        isAnonymous: true
+      };
+    }
+    
+    this.userId = socket.user.id;
     this.currentRoom = null;
+    
+    console.log('🔌 New ChatHandler created', { 
+      socketId: socket.id,
+      userId: this.userId,
+      isAnonymous: socket.user.isAnonymous || false,
+      connected: socket.connected 
+    });
     
     // Bind event handlers
     this.setupEventHandlers();
+    
+    // Log all incoming events for debugging
+    const originalEmit = socket.emit;
+    socket.emit = (event, ...args) => {
+      console.log(`📤 [${socket.id}] Emitting event: ${event}`, args[0] || {});
+      return originalEmit.apply(socket, [event, ...args]);
+    };
   }
 
   setupEventHandlers() {
-    // Join chat room
-    this.socket.on(SOCKET_EVENTS.FE_JOIN_CHAT, this.joinRoom.bind(this));
+    console.log('🔔 Setting up event handlers for socket:', this.socket.id);
+    
+    this.socket.on(SOCKET_EVENTS.FE_JOIN_CHAT, (roomId) => {
+      console.log(`🚪 User ${this.userId} joining room:`, roomId);
+      this.joinRoom(roomId);
+    });
     
     // Leave room
     this.socket.on('disconnect', this.leaveRoom.bind(this));
     
     // Send message
-    this.socket.on(SOCKET_EVENTS.FE_SEND_MESSAGE, this.sendMessage.bind(this));
+    this.socket.on(SOCKET_EVENTS.FE_SEND_MESSAGE, (data) => {
+      console.log('📩 Received FE_SEND_MESSAGE event:', data);
+      this.sendMessage(data);
+    });
     
     // Typing status
     this.socket.on(SOCKET_EVENTS.FE_TYPING, () => this.handleTyping(true));
@@ -36,6 +73,33 @@ class ChatHandler {
   }
 
   async joinRoom(roomId) {
+    if (!roomId) {
+      logger.warn('Attempted to join room with undefined ID');
+      return this.socket.emit(SOCKET_EVENTS.BE_ERROR, {
+        success: false,
+        message: 'Room ID is required',
+        code: 'MISSING_ROOM_ID'
+      });
+    }
+    
+    // Ensure roomId is a string
+    roomId = String(roomId).trim();
+    if (!roomId) {
+      return this.socket.emit(SOCKET_EVENTS.BE_ERROR, {
+        success: false,
+        message: 'Invalid room ID',
+        code: 'INVALID_ROOM_ID'
+      });
+    }
+
+    console.log('🔍 joinRoom called with:', { roomId, userId: this.userId });
+    
+    // Don't rejoin the same room
+    if (this.currentRoom === roomId) {
+      logger.debug(`User ${this.userId} is already in room ${roomId}`);
+      return;
+    }
+
     try {
       // Leave previous room if any
       if (this.currentRoom) {
@@ -58,16 +122,26 @@ class ChatHandler {
       
       // Get room info and history
       const [roomInfo, messages] = await Promise.all([
-        chatService.getRoomInfo(roomId, this.userId),
-        chatService.getChatHistory(roomId, this.userId, { limit: 50 })
+        chatService.getRoomInfo(roomId, this.userId).catch(error => {
+          logger.error('Error getting room info:', error);
+          return null;
+        }),
+        chatService.getChatHistory(roomId, this.userId, { limit: 50 }).catch(error => {
+          logger.error('Error getting chat history:', error);
+          return [];
+        })
       ]);
+
+      if (!roomInfo) {
+        throw new Error('Failed to get room information');
+      }
 
       // Send join confirmation with room data
       this.socket.emit(SOCKET_EVENTS.BE_JOINED_CHAT, {
         success: true,
         roomId,
         roomInfo,
-        messages,
+        messages: messages || [],
         message: 'Successfully joined chat room'
       });
 
@@ -80,7 +154,8 @@ class ChatHandler {
       logger.error('Error joining room:', error);
       this.socket.emit(SOCKET_EVENTS.BE_ERROR, {
         success: false,
-        message: error.message || 'Failed to join chat room'
+        message: error.message || 'Failed to join chat room',
+        ...(process.env.NODE_ENV === 'development' && { error: error.toString() })
       });
     }
   }
@@ -97,27 +172,90 @@ class ChatHandler {
     }
   }
 
-  async sendMessage({ content, type = 'text', metadata = {} }) {
-    logger.debug('=== MESSAGE DEBUG START ===');
-    logger.debug('Message received:', { 
-      from: this.userId, 
-      room: this.currentRoom, 
-      content, 
-      type, 
-      metadata,
-      socketId: this.socket.id
-    });
+  async sendMessage(incomingMessage) {
+    // Generate a unique ID for this message
+    const messageId = generateMessageId(incomingMessage);
+    const messageKey = `message:${messageId}`;
+    
+    try {
+      // Check if we've already processed this message using Redis
+      const isDuplicate = await redis.get(messageKey);
+      if (isDuplicate) {
+        logger.debug('Skipping duplicate message (Redis):', messageId);
+        return;
+      }
+      
+      // Mark this message as processed with a 5-minute TTL
+      await redis.setex(messageKey, 300, '1');
+      
+      // Also track in-memory for fast lookups during the same connection
+      if (!this.processedMessages) this.processedMessages = new Set();
+      if (this.processedMessages.has(messageId)) {
+        logger.debug('Skipping duplicate message (in-memory):', messageId);
+        return;
+      }
+      this.processedMessages.add(messageId);
 
-    if (!this.currentRoom) {
-      const errorMsg = 'Not in a room';
-      logger.error(errorMsg);
-      this.socket.emit(SOCKET_EVENTS.BE_ERROR, { 
-        success: false, 
-        message: errorMsg 
+      logger.debug('=== MESSAGE DEBUG START ===');
+      logger.debug('Current room:', this.currentRoom);
+      logger.debug('Message data:', incomingMessage);
+      
+      // Log the raw incoming message
+      console.log('📥 Raw message received:', JSON.stringify(incomingMessage, null, 2));
+      
+      // Ensure incomingMessage is an object
+      if (typeof incomingMessage !== 'object' || incomingMessage === null) {
+        throw new Error('Invalid message format. Expected an object.');
+      }
+
+      // Extract data with support for both frontend and backend formats
+      const { 
+        content, 
+        type = 'text', 
+        metadata = {},
+        chatId,        // Frontend format
+        senderId = this.userId, // Default to current user if not provided
+        timestamp,     // Frontend format
+        status         // Frontend status
+      } = incomingMessage;
+      
+      // Ensure senderId matches the current user for security
+      if (senderId !== this.userId) {
+        logger.warn(`User ${this.userId} attempted to send message as ${senderId}`);
+        throw new Error('Invalid sender ID');
+      }
+
+      // Determine the room ID (support both frontend's chatId and backend's currentRoom)
+      const roomId = chatId || this.currentRoom;
+      
+      if (!roomId) {
+        throw new Error('No room/chat ID provided');
+      }
+
+      console.log('💬 Processing message:', { 
+        roomId,
+        content: typeof content === 'string' ? content.substring(0, 50) + (content.length > 50 ? '...' : '') : content,
+        type,
+        senderId: senderId || this.userId,
+        timestamp: timestamp || new Date().toISOString()
       });
-      logger.debug('=== MESSAGE DEBUG END (Not in a room) ===\n');
-      return;
-    }
+
+      // If not in a room but have chatId, join the room first
+      if (!this.currentRoom && chatId) {
+        console.log(`🔄 Auto-joining room: ${chatId}`);
+        try {
+          await this.joinRoom(chatId);
+          // If we just joined the room, wait a small amount of time for the join to complete
+          await new Promise(resolve => setTimeout(resolve, 50));
+        } catch (error) {
+          logger.error('Error auto-joining room:', error);
+          throw new Error(`Failed to join room: ${error.message}`);
+        }
+      }
+      // Ensure we're in a room
+      if (!this.currentRoom) {
+        throw new Error('Not in a room and could not join automatically');
+      }
 
     if (!content) {
       const errorMsg = 'Message content is required';
@@ -126,39 +264,65 @@ class ChatHandler {
         success: false, 
         message: errorMsg 
       });
-      logger.debug('=== MESSAGE DEBUG END (No content) ===\n');
       return;
     }
 
-    try {
-      logger.debug('Saving message to database...');
+      // Prepare message data for database
+      const messageData = {
+        roomId: this.currentRoom,
+        userId: senderId || this.userId,
+        content,
+        type,
+        metadata: {
+          ...metadata,
+          frontendStatus: status, // Preserve frontend status if any
+          timestamp: timestamp || new Date().toISOString()
+        }
+      };
+
+      console.log('💾 Saving message to database:', messageData);
       
       // Save message to database
       const message = await chatService.sendMessage(
-        this.currentRoom,
-        this.userId,
-        content,
-        type,
-        metadata
+        messageData.roomId,
+        messageData.userId,
+        messageData.content,
+        messageData.type,
+        messageData.metadata
       );
 
-      logger.debug('Message saved successfully:', { 
-        messageId: message._id || message.id,
-        timestamp: message.createdAt || new Date().toISOString()
-      });
+      console.log('✅ Message saved to database:', message);
+
+      // Log server-side message handling
+      logger.info(`Message delivered to room ${this.currentRoom} from user ${this.userId}`);
 
       // Broadcast to room
       logger.debug(`Broadcasting message to room ${this.currentRoom}...`);
       this.io.to(this.currentRoom).emit(SOCKET_EVENTS.BE_NEW_MESSAGE, message);
       logger.debug('Message broadcast complete');
 
-      // Send confirmation to sender
-      this.socket.emit(SOCKET_EVENTS.BE_MESSAGE_SENT, {
+      // Prepare response with frontend-compatible format
+      const response = {
         success: true,
-        roomId: this.currentRoom,
+        chatId: this.currentRoom,
         messageId: message._id || message.id,
-        timestamp: message.createdAt || new Date().toISOString()
-      });
+        content: message.content,
+        senderId: message.userId || this.userId,
+        timestamp: message.createdAt || new Date().toISOString(),
+        status: 'delivered',
+        type: message.type || 'text'
+      };
+
+      console.log('📤 Sending confirmation:', response);
+      
+      // Ensure we have a valid event name
+      const eventName = SOCKET_EVENTS.BE_NEW_MESSAGE || 'be:new-message';
+      
+      // Send confirmation to sender with the correct event name
+      this.socket.emit(SOCKET_EVENTS.BE_MESSAGE_SENT || 'be:message-sent', response);
+      
+      // Also emit to the room (for other participants) with the correct event name
+      this.socket.to(this.currentRoom).emit(eventName, response);
       
       logger.debug('=== MESSAGE DEBUG END (Success) ===\n');
     } catch (error) {
@@ -167,14 +331,20 @@ class ChatHandler {
         stack: error.stack,
         userId: this.userId,
         room: this.currentRoom,
-        contentLength: content?.length
+        incomingMessage: incomingMessage ? {
+          type: incomingMessage.type,
+          hasContent: !!incomingMessage.content,
+          contentLength: incomingMessage.content ? incomingMessage.content.length : 0
+        } : 'No incoming message'
       };
       
       logger.error('Error sending message:', errorDetails);
+      
       this.socket.emit(SOCKET_EVENTS.BE_ERROR, {
         success: false,
         message: error.message || 'Failed to send message',
-        code: error.code
+        code: error.code,
+        details: process.env.NODE_ENV === 'development' ? errorDetails : undefined
       });
       
       logger.debug('=== MESSAGE DEBUG END (Error) ===\n');
@@ -183,15 +353,9 @@ class ChatHandler {
 
   async handleTyping(isTyping) {
     if (!this.currentRoom) return;
-
+    
     try {
-      await chatService.updateTypingStatus(
-        this.currentRoom, 
-        this.userId, 
-        isTyping
-      );
-      
-      // Broadcast to room except sender
+      await chatService.updateTypingStatus(this.currentRoom, this.userId, isTyping);
       this.socket.to(this.currentRoom).emit(
         isTyping ? SOCKET_EVENTS.BE_USER_TYPING : SOCKET_EVENTS.BE_USER_STOPPED_TYPING,
         {
@@ -210,11 +374,11 @@ class ChatHandler {
     
     // Forward to specific target user if specified
     if (data.targetUserId) {
-      const targetSocket = this.userSockets.get(data.targetUserId);
+      const targetSocket = this.userSockets[data.targetUserId] || this.userSockets.get(data.targetUserId);
       if (targetSocket) {
-        targetSocket.emit(event, {
-          ...data,
-          senderId: this.userId
+        targetSocket.emit(event, { 
+          ...data, 
+          senderId: this.userId 
         });
       }
       return;
