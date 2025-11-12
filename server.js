@@ -1,12 +1,12 @@
 // server.js
 const http = require('http');
 const socketIo = require('socket.io');
-const mongoose = require('mongoose');
+// const mongoose = require('mongoose'); // COMMENTED: MongoDB not configured yet
 const createApp = require('./src/app');
 const { environment, logger } = require('./src/config');
 const { initializeSocketHandlers } = require('./src/sockets');
 const { MatchingService } = require('./src/services');
-const { connectDB } = require('./src/config/db');
+// const { connectDB } = require('./src/config/db'); // COMMENTED: MongoDB not configured yet
 
 // Create Express app
 const app = createApp();
@@ -51,12 +51,14 @@ app.locals.MatchingService = MatchingService;
 const startServer = async () => {
   try {
     // Connect to MongoDB
-    await connectDB();
+    // COMMENTED: MongoDB not configured yet
+    // await connectDB();
     
     server.listen(environment.port, environment.host, () => {
       logger.info(`🚀 Jalwa Server running on http://${environment.host}:${environment.port} [${environment.env}]`);
       logger.info(`DB: ${environment.databaseUrl}`);
       logger.info(`Redis: ${environment.redisUrl}`);
+      logger.warn('⚠️  MongoDB is not connected - Chat features may not work');
     });
 
     // Graceful shutdown
@@ -68,10 +70,14 @@ const startServer = async () => {
         logger.info('HTTP server closed');
         
         // Close MongoDB connection
-        mongoose.connection.close(false, () => {
-          logger.info('MongoDB connection closed');
-          process.exit(0);
-        });
+        // COMMENTED: MongoDB not configured yet
+        // mongoose.connection.close(false, () => {
+        //   logger.info('MongoDB connection closed');
+        //   process.exit(0);
+        // });
+        
+        // Exit immediately since MongoDB is not connected
+        process.exit(0);
       });
     };
 
