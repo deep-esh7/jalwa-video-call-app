@@ -357,6 +357,7 @@ class PaymentService {
     try {
       const BundleService = require('./BundleService');
       const WalletService = require('./WalletService');
+      const PromoCodeService = require('./PromoCodeService');
 
       // Validate all bundles first
       const bundleDetails = [];
@@ -379,20 +380,64 @@ class PaymentService {
           quantity,
           coinsToAdd: bundle.coins * quantity,
           totalPrice: bundle.price * quantity,
+          bundleId: bundle.id,
         });
       }
 
       // Calculate totals
       let totalCoins = 0;
       let totalAmountUsd = 0;
-      const purchasedBundles = [];
+      let discountAmount = 0;
+      let bonusCoins = 0;
+      let promoCodeApplied = null;
+      let promoCodeId = null;
 
-      // Execute all wallet credits in a transaction-like manner
-      // (WalletService should handle its own transaction if needed)
+      // Calculate original total
+      for (const detail of bundleDetails) {
+        totalAmountUsd += detail.totalPrice;
+        totalCoins += detail.coinsToAdd;
+      }
+
+      // Apply promo code if provided
+      if (promoCode) {
+        // Prepare bundle data for promo validation
+        const bundlesForPromo = bundleDetails.map(detail => ({
+          bundleId: detail.bundleId,
+          totalPrice: detail.totalPrice,
+        }));
+
+        // Validate promo code
+        const validation = await PromoCodeService.validatePromoCode(
+          promoCode,
+          userId,
+          bundlesForPromo,
+          totalAmountUsd
+        );
+
+        if (!validation.valid) {
+          throw new Error(`Promo code error: ${validation.message}`);
+        }
+
+        // Apply discount
+        discountAmount = validation.discount.discountAmount;
+        bonusCoins = validation.discount.bonusCoins;
+        promoCodeApplied = validation.promoCode.code;
+        promoCodeId = validation.promoCode.id;
+        totalAmountUsd = validation.discount.finalAmount;
+
+        logger.info(
+          `✅ Promo code ${promoCodeApplied} applied: -$${discountAmount}, +${bonusCoins} bonus coins`
+        );
+      }
+
+      const purchasedBundles = [];
+      const transactionIds = [];
+
+      // Execute all wallet credits
       for (const detail of bundleDetails) {
         const { bundle, quantity, coinsToAdd, totalPrice } = detail;
 
-        await WalletService.credit(
+        const result = await WalletService.credit(
           userId,
           coinsToAdd,
           'deposit',
@@ -404,11 +449,11 @@ class PaymentService {
             amountUsd: totalPrice,
             coins: coinsToAdd,
             purchaseDate: new Date().toISOString(),
+            promoCode: promoCodeApplied,
           }
         );
 
-        totalCoins += coinsToAdd;
-        totalAmountUsd += totalPrice;
+        transactionIds.push(result.transaction.id);
 
         purchasedBundles.push({
           id: bundle.id,
@@ -425,13 +470,36 @@ class PaymentService {
         );
       }
 
-      // Apply promo code logic here (if needed)
-      if (promoCode) {
-        logger.info(`Promo code applied: ${promoCode}`);
-        // TODO: Implement promo code logic
-        // - Validate promo code
-        // - Apply discount or bonus coins
-        // - Update totals
+      // Add bonus coins if any
+      if (bonusCoins > 0) {
+        await WalletService.credit(
+          userId,
+          bonusCoins,
+          'deposit',
+          `Bonus coins from promo code: ${promoCodeApplied}`,
+          {
+            promoCode: promoCodeApplied,
+            bonusCoins: bonusCoins,
+            purchaseDate: new Date().toISOString(),
+          }
+        );
+
+        totalCoins += bonusCoins;
+
+        logger.info(
+          `✅ Added ${bonusCoins} bonus coins from promo code ${promoCodeApplied}`
+        );
+      }
+
+      // Record promo code usage
+      if (promoCodeId) {
+        await PromoCodeService.applyPromoCode(
+          promoCodeId,
+          userId,
+          transactionIds[0], // Use first transaction as order reference
+          discountAmount,
+          bonusCoins
+        );
       }
 
       // Get updated wallet balance
@@ -440,9 +508,12 @@ class PaymentService {
       return {
         purchasedBundles,
         totalCoins,
-        totalAmountUsd,
+        originalAmount: totalAmountUsd + discountAmount,
+        discountAmount,
+        bonusCoins,
+        finalAmount: totalAmountUsd,
         newBalance: wallet.balance,
-        promoCodeApplied: promoCode || null,
+        promoCodeApplied,
       };
     } catch (error) {
       logger.error('Error purchasing multiple bundles:', error);

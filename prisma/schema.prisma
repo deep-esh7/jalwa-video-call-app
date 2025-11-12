@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -138,4 +138,42 @@ model CoinBundle {
   updatedAt   DateTime @updatedAt
   
   @@index([isActive, sortOrder])
+}
+
+model PromoCode {
+  id                String            @id @default(uuid())
+  code              String            @unique // The promo code itself (e.g., "WELCOME10")
+  promoType         String            // "percentage", "fixed_amount", "bonus_coins", "free_bundle"
+  discountValue     Float             // Discount value (percentage or fixed amount)
+  bonusCoins        Int               @default(0) // Bonus coins to add
+  maxUsage          Int               // Maximum total usage count
+  currentUsage      Int               @default(0) // Current usage count
+  perUserMaxUsage   Int               @default(1) // How many times one user can use it
+  expiryTime        DateTime?         // When it expires (null = no expiry)
+  applicableBundles Json?             // Array of bundle IDs this applies to (null = all bundles)
+  minPurchaseAmount Float             @default(0) // Minimum purchase amount required
+  isActive          Boolean           @default(true)
+  description       String?           // Description of the promo
+  createdBy         String?           // Admin who created it
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  usages            PromoCodeUsage[]
+  
+  @@index([code])
+  @@index([isActive, expiryTime])
+}
+
+model PromoCodeUsage {
+  id          String    @id @default(uuid())
+  promoCodeId String
+  userId      String
+  orderId     String?   // Transaction or payment ID
+  discountAmount Float  // Actual discount amount applied
+  bonusCoins  Int       @default(0) // Bonus coins received
+  createdAt   DateTime  @default(now())
+  promoCode   PromoCode @relation(fields: [promoCodeId], references: [id])
+  
+  @@index([promoCodeId])
+  @@index([userId])
+  @@index([promoCodeId, userId])
 }

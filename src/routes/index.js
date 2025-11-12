@@ -10,6 +10,7 @@ const giftsRoutes = require('./gifts');
 const paymentsRoutes = require('./payments');
 const bundlesRoutes = require('./bundles');
 const chatRoutes = require('./chatRoutes');
+const promoCodesRoutes = require('./promoCodes');
 
 // Mount routes
 router.use('/health', healthRoutes);
@@ -19,6 +20,7 @@ router.use('/api/gifts', giftsRoutes);
 router.use('/api/payments', paymentsRoutes);
 router.use('/api/bundles', bundlesRoutes);
 router.use('/api/chat', chatRoutes);
+router.use('/api/promo-codes', promoCodesRoutes);
 
 module.exports = router;
 
