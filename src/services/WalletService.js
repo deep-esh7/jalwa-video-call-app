@@ -250,6 +250,104 @@ class WalletService {
       throw error;
     }
   }
+
+  /**
+   * Get purchased bundle history for user
+   * @param {string} userId - User ID
+   * @param {Object} options - Query options (limit, offset)
+   * @returns {Promise<Object>} - Purchased bundle history
+   */
+  async getPurchasedBundles(userId, options = {}) {
+    try {
+      const { limit = 50, offset = 0 } = options;
+
+      // Get all deposit transactions that have bundle information in metadata
+      const transactions = await prisma.transaction.findMany({
+        where: {
+          userId,
+          type: 'deposit',
+          status: 'completed',
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+      });
+
+      // Filter transactions that have bundle information and format the response
+      const bundlePurchases = transactions
+        .filter(tx => tx.metadata && typeof tx.metadata === 'object' && tx.metadata.bundleId)
+        .map(tx => {
+          const metadata = tx.metadata;
+          return {
+            id: tx.id,
+            bundleId: metadata.bundleId,
+            bundleName: metadata.bundleName,
+            quantity: metadata.quantity || 1,
+            coinsReceived: metadata.coins || tx.amount,
+            amountPaid: metadata.amountUsd,
+            purchaseDate: metadata.purchaseDate || tx.createdAt,
+            transactionId: tx.id,
+            description: tx.description,
+            createdAt: tx.createdAt,
+          };
+        });
+
+      // Get total count of bundle purchases
+      const allTransactions = await prisma.transaction.findMany({
+        where: {
+          userId,
+          type: 'deposit',
+          status: 'completed',
+        },
+        select: {
+          metadata: true,
+        },
+      });
+
+      const total = allTransactions.filter(
+        tx => tx.metadata && typeof tx.metadata === 'object' && tx.metadata.bundleId
+      ).length;
+
+      // Calculate statistics
+      const totalCoinsFromBundles = bundlePurchases.reduce(
+        (sum, purchase) => sum + (purchase.coinsReceived || 0), 
+        0
+      );
+      const totalAmountSpent = bundlePurchases.reduce(
+        (sum, purchase) => sum + (purchase.amountPaid || 0), 
+        0
+      );
+
+      return {
+        purchases: bundlePurchases,
+        total,
+        limit,
+        offset,
+        statistics: {
+          totalPurchases: total,
+          totalCoinsFromBundles,
+          totalAmountSpent: parseFloat(totalAmountSpent.toFixed(2)),
+        },
+      };
+    } catch (error) {
+      logger.error('Error getting purchased bundles:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get wallet object
+   * @param {string} userId - User ID
+   * @returns {Promise<Object>} - Wallet object
+   */
+  async getWallet(userId) {
+    try {
+      return await this.getOrCreateWallet(userId);
+    } catch (error) {
+      logger.error('Error getting wallet:', error);
+      throw error;
+    }
+  }
 }
 
 module.exports = new WalletService();

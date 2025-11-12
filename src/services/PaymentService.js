@@ -347,6 +347,110 @@ class PaymentService {
   }
 
   /**
+   * Purchase multiple bundles in a single transaction
+   * @param {string} userId - User ID
+   * @param {Array} bundles - Array of { bundleId, count }
+   * @param {string} promoCode - Optional promo code
+   * @returns {Promise<Object>} - Purchase result
+   */
+  async purchaseMultipleBundles(userId, bundles, promoCode = null) {
+    try {
+      const BundleService = require('./BundleService');
+      const WalletService = require('./WalletService');
+
+      // Validate all bundles first
+      const bundleDetails = [];
+      for (const item of bundles) {
+        const { bundleId, count } = item;
+
+        if (!bundleId || !count || isNaN(Number(count)) || Number(count) <= 0) {
+          throw new Error(`Invalid bundle entry: ${JSON.stringify(item)}`);
+        }
+
+        const bundle = await BundleService.getBundleById(bundleId);
+
+        if (!bundle || !bundle.isActive) {
+          throw new Error(`Bundle not found or inactive: ${bundleId}`);
+        }
+
+        const quantity = Number(count);
+        bundleDetails.push({
+          bundle,
+          quantity,
+          coinsToAdd: bundle.coins * quantity,
+          totalPrice: bundle.price * quantity,
+        });
+      }
+
+      // Calculate totals
+      let totalCoins = 0;
+      let totalAmountUsd = 0;
+      const purchasedBundles = [];
+
+      // Execute all wallet credits in a transaction-like manner
+      // (WalletService should handle its own transaction if needed)
+      for (const detail of bundleDetails) {
+        const { bundle, quantity, coinsToAdd, totalPrice } = detail;
+
+        await WalletService.credit(
+          userId,
+          coinsToAdd,
+          'deposit',
+          `Purchased ${quantity}x ${bundle.name}`,
+          {
+            bundleId: bundle.id,
+            bundleName: bundle.name,
+            quantity: quantity,
+            amountUsd: totalPrice,
+            coins: coinsToAdd,
+            purchaseDate: new Date().toISOString(),
+          }
+        );
+
+        totalCoins += coinsToAdd;
+        totalAmountUsd += totalPrice;
+
+        purchasedBundles.push({
+          id: bundle.id,
+          name: bundle.name,
+          price: bundle.price,
+          coins: bundle.coins,
+          quantity,
+          totalCoins: coinsToAdd,
+          totalPrice,
+        });
+
+        logger.info(
+          `✅ User ${userId} purchased ${quantity}x ${bundle.name} — ${coinsToAdd} coins ($${totalPrice}).`
+        );
+      }
+
+      // Apply promo code logic here (if needed)
+      if (promoCode) {
+        logger.info(`Promo code applied: ${promoCode}`);
+        // TODO: Implement promo code logic
+        // - Validate promo code
+        // - Apply discount or bonus coins
+        // - Update totals
+      }
+
+      // Get updated wallet balance
+      const wallet = await WalletService.getWallet(userId);
+
+      return {
+        purchasedBundles,
+        totalCoins,
+        totalAmountUsd,
+        newBalance: wallet.balance,
+        promoCodeApplied: promoCode || null,
+      };
+    } catch (error) {
+      logger.error('Error purchasing multiple bundles:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Get payment info - Simple 1:1 conversion
    * @returns {Object} - Payment information
    */

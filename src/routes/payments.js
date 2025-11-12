@@ -7,10 +7,11 @@ const PaymentController = require('../controllers/PaymentController');
 router.get('/info', PaymentController.getPaymentInfo);
 
 // Authenticated endpoints
-// router.post('/purchase', PaymentController.purchaseBundle); // Purchase a coin bundle
 router.get('/wallet', PaymentController.getWallet);
 router.get('/transactions', PaymentController.getTransactionHistory);
-router.post('/purchase', PaymentController.purchaseBundles); // New (plural)
+router.get('/bundles/purchased', PaymentController.getPurchasedBundles); // Get purchased bundle history
+router.post('/purchase', PaymentController.purchaseBundles); // Purchase multiple bundles
+
 // Stripe endpoints (commented out for now)
 // router.post('/checkout', PaymentController.createCheckoutSession);
 // router.get('/history', PaymentController.getPaymentHistory);

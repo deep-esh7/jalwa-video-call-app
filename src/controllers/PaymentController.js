@@ -25,122 +25,72 @@ class PaymentController {
   }
 
   /**
-   * Purchase coin bundle
+   * Purchase multiple coin bundles
    * POST /api/payments/purchase
-   * Body: { bundleId }
+   * Body: { 
+   *   bundles: [{ bundleId: string, count: number }], 
+   *   promoCode?: string 
+   * }
+   * Or: { 
+   *   bundleIds: [string], 
+   *   promoCode?: string 
+   * }
    */
-  
   async purchaseBundles(req, res, next) {
-  try {
-    const authHeader = req.headers.authorization;
+    try {
+      const authHeader = req.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
-        success: false,
-        message: 'No token provided',
-      });
-    }
-
-    const idToken = authHeader.split('Bearer ')[1];
-    const user = await getUserFromToken(idToken);
-
-    if (!user) {
-      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
-        success: false,
-        message: 'Invalid token',
-      });
-    }
-
-    const { bundles, promoCode } = req.body;
-
-    if (!Array.isArray(bundles) || bundles.length === 0) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        success: false,
-        message: 'Bundles list is required and must not be empty',
-      });
-    }
-
-    const BundleService = require('../services/BundleService');
-    const WalletService = require('../services/WalletService');
-
-    // Get or create user wallet
-    const wallet = await WalletService.getOrCreateWallet(user.id);
-
-    let totalCoins = 0;
-    let totalAmountUsd = 0;
-    const purchasedBundles = [];
-
-    // Start a transaction block (pseudo — depends on your DB)
-    for (const item of bundles) {
-      const { bundleId, count } = item;
-
-      if (!bundleId || !count || isNaN(Number(count)) || Number(count) <= 0) {
-        throw new Error(`Invalid bundle entry: ${JSON.stringify(item)}`);
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+          success: false,
+          message: 'No token provided',
+        });
       }
 
-      const bundle = await BundleService.getBundleById(bundleId);
+      const idToken = authHeader.split('Bearer ')[1];
+      const user = await getUserFromToken(idToken);
 
-      if (!bundle || !bundle.isActive) {
-        throw new Error(`Bundle not found or inactive: ${bundleId}`);
+      if (!user) {
+        return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+          success: false,
+          message: 'Invalid token',
+        });
       }
 
-      const quantity = Number(count);
-      const coinsToAdd = bundle.coins * quantity;
-      const totalPrice = bundle.price * quantity;
+      const { bundleIds, promoCode } = req.body;
 
-      const result = await WalletService.credit(
-        user.id,
-        coinsToAdd,
-        'deposit',
-        `Purchased ${quantity}x ${bundle.name}`,
-        {
-          bundleId: bundle.id,
-          bundleName: bundle.name,
-          amountUsd: totalPrice,
-          coins: coinsToAdd,
-          purchaseDate: new Date().toISOString(),
-        }
-      );
+      // Support both 'bundleIds' array and 'bundles' array for backward compatibility
+      const bundles = req.body.bundles || 
+        (Array.isArray(bundleIds) ? bundleIds.map(id => ({ bundleId: id, count: 1 })) : null);
 
-      totalCoins += coinsToAdd;
-      totalAmountUsd += totalPrice;
+      if (!bundles || !Array.isArray(bundles) || bundles.length === 0) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          message: 'Bundles list is required and must not be empty. Expected format: { bundles: [{ bundleId: "id", count: 1 }] } or { bundleIds: ["id1", "id2"] }',
+        });
+      }
 
-      purchasedBundles.push({
-        id: bundle.id,
-        name: bundle.name,
-        price: bundle.price,
-        coins: bundle.coins,
-        quantity,
-        totalCoins: coinsToAdd,
-        totalPrice,
+      const result = await PaymentService.purchaseMultipleBundles(user.id, bundles, promoCode);
+
+      return res.json({
+        success: true,
+        message: 'Bundles purchased successfully',
+        data: result,
       });
-
-      logger.info(
-        `✅ User ${user.id} purchased ${quantity}x ${bundle.name} — ${coinsToAdd} coins ($${totalPrice}).`
-      );
+    } catch (error) {
+      logger.error('❌ Error processing multiple bundle purchase:', error);
+      
+      // Handle specific error types
+      if (error.message.includes('Bundle not found') || error.message.includes('inactive')) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          message: error.message,
+        });
+      }
+      
+      next(error);
     }
-
-    // Apply promo logic here (if needed)
-    if (promoCode) {
-      logger.info(`Promo code applied: ${promoCode}`);
-      // Apply discounts, bonus coins, etc.
-    }
-
-    return res.json({
-      success: true,
-      message: 'Bundles purchased successfully',
-      data: {
-        purchasedBundles,
-        totalCoins,
-        totalAmountUsd,
-        newBalance: (await WalletService.getWallet(user.id)).balance,
-      },
-    });
-  } catch (error) {
-    logger.error('❌ Error processing multiple bundle purchase:', error);
-    next(error);
   }
-}
 
 
   /**
@@ -298,6 +248,48 @@ class PaymentController {
       });
     } catch (error) {
       logger.error('Error getting transaction history:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get purchased bundle history
+   * GET /api/payments/bundles/purchased
+   */
+  async getPurchasedBundles(req, res, next) {
+    try {
+      const authHeader = req.headers.authorization;
+      
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+          success: false,
+          message: 'No token provided',
+        });
+      }
+
+      const idToken = authHeader.split('Bearer ')[1];
+      const user = await getUserFromToken(idToken);
+
+      if (!user) {
+        return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+          success: false,
+          message: 'Invalid token',
+        });
+      }
+
+      const { limit, offset } = req.query;
+
+      const history = await WalletService.getPurchasedBundles(user.id, {
+        limit: limit ? parseInt(limit) : undefined,
+        offset: offset ? parseInt(offset) : undefined,
+      });
+
+      return res.json({
+        success: true,
+        data: history,
+      });
+    } catch (error) {
+      logger.error('Error getting purchased bundles:', error);
       next(error);
     }
   }
