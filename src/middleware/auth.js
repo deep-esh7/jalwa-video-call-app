@@ -1,14 +1,22 @@
 // src/middleware/auth.js
-const admin = require('../config/firebase');
+const firebaseConfig = require('../config/firebase');
 const logger = require('../config/logger');
 const UserService = require('../services/UserService');
 const { HTTP_STATUS } = require('../constants');
+
+// Get the actual admin instance
+const admin = firebaseConfig.getAdmin();
 
 /**
  * Verify Firebase ID token
  */
 const verifyAndDecodeToken = async (idToken) => {
   try {
+    // Check if Firebase is initialized
+    if (!admin) {
+      throw new Error('Firebase is not initialized. Please check your firebase-service-account-key.json file.');
+    }
+    
     const decodedToken = await admin.auth().verifyIdToken(idToken);
     logger.debug('Token verified successfully:', {
       uid: decodedToken.uid,
@@ -69,6 +77,11 @@ const authenticate = async (req, res, next) => {
  */
 async function getUserFromToken(idToken) {
   try {
+    // Check if Firebase is initialized
+    if (!admin) {
+      throw new Error('Firebase is not initialized. Please check your firebase-service-account-key.json file.');
+    }
+    
     // 1. Verify the Firebase ID token
     const decodedToken = await admin.auth().verifyIdToken(idToken);
     const firebaseUid = decodedToken.uid;
@@ -106,7 +119,7 @@ async function getUserFromToken(idToken) {
     
     return user;
   } catch (error) {
-    logger.error('Error in getUserFromToken:', error);
+    logger.error('Error in getUserFromToken:', error.message);
     throw error;
   }
 }

@@ -1,10 +1,13 @@
 // src/controllers/UserController.js
-const admin = require('../config/firebase');
+const firebaseConfig = require('../config/firebase');
 const logger = require('../config/logger');
 const UserService = require('../services/UserService');
 const RedisService = require('../services/RedisService');
 const { getUserFromToken } = require('../middleware/auth');
 const { HTTP_STATUS } = require('../constants');
+
+// Get the actual admin instance
+const admin = firebaseConfig.getAdmin();
 
 class UserController {
   /**
@@ -152,6 +155,12 @@ class UserController {
       }
 
       const idToken = authHeader.split('Bearer ')[1];
+      
+      // Check if Firebase is initialized
+      if (!admin) {
+        throw new Error('Firebase is not initialized. Please check your firebase-service-account-key.json file.');
+      }
+      
       const decoded = await admin.auth().verifyIdToken(idToken);
       const uid = decoded.uid;
 
