@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const { environment, logger } = require('./config');
 const routes = require('./routes');
+const chatRoutes = require('./routes/chatRoutes');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 
 /**
@@ -15,6 +16,7 @@ function createApp() {
   app.use(cors(environment.cors));
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+  app.use('/api', chatRoutes);
 
   // Request logging middleware
   app.use((req, res, next) => {

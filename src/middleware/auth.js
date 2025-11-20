@@ -1,5 +1,5 @@
 // src/middleware/auth.js
-const admin = require('../config/firebase');
+const firebaseAdmin = require('../config/firebase');
 const logger = require('../config/logger');
 const UserService = require('../services/UserService');
 const { HTTP_STATUS } = require('../constants');
@@ -9,7 +9,13 @@ const { HTTP_STATUS } = require('../constants');
  */
 const verifyAndDecodeToken = async (idToken) => {
   try {
-    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    if (!firebaseAdmin.isInitialized()) {
+      throw new Error('Firebase is not initialized');
+    }
+    const decodedToken = await firebaseAdmin.auth.verifyIdToken(idToken);
+    if (!decodedToken) {
+      throw new Error('Invalid token');
+    }
     logger.debug('Token verified successfully:', {
       uid: decodedToken.uid,
       email: decodedToken.email,
@@ -69,8 +75,15 @@ const authenticate = async (req, res, next) => {
  */
 async function getUserFromToken(idToken) {
   try {
+    if (!firebaseAdmin.isInitialized()) {
+      throw new Error('Firebase is not initialized');
+    }
+    
     // 1. Verify the Firebase ID token
-    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const decodedToken = await firebaseAdmin.auth.verifyIdToken(idToken);
+    if (!decodedToken) {
+      throw new Error('Invalid token');
+    }
     const firebaseUid = decodedToken.uid;
     
     // 2. First, try to get the user from the database
@@ -82,9 +95,16 @@ async function getUserFromToken(idToken) {
       return user;
     }
     
-    // 4. If not in database, fetch from Firebase
-    logger.debug(`User not in database, fetching from Firebase: ${firebaseUid}`);
-    const firebaseUser = await admin.auth().getUser(firebaseUid);
+    // 4. If not in database, we can't fetch from Firebase directly with the wrapper
+    // So we'll create a basic user object from the decoded token
+    logger.debug(`Creating new user from token for: ${firebaseUid}`);
+    const firebaseUser = {
+      uid: firebaseUid,
+      displayName: decodedToken.name,
+      email: decodedToken.email,
+      photoURL: decodedToken.picture,
+      phoneNumber: decodedToken.phone_number
+    };
     
     // 5. Create a new user in the database
     const newUser = {
