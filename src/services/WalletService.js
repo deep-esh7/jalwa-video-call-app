@@ -61,13 +61,20 @@ class WalletService {
     try {
       // Use transaction to ensure atomicity
       const result = await prisma.$transaction(async (tx) => {
-        // Get current wallet
-        const wallet = await tx.wallet.findUnique({
+        // Get current wallet or create if doesn't exist
+        let wallet = await tx.wallet.findUnique({
           where: { userId },
         });
 
         if (!wallet) {
-          throw new Error('Wallet not found');
+          // Create wallet if it doesn't exist
+          wallet = await tx.wallet.create({
+            data: {
+              userId,
+              balance: 0,
+            },
+          });
+          logger.info(`Created wallet for user ${userId} during credit operation`);
         }
 
         const balanceBefore = wallet.balance;
