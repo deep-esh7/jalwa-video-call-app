@@ -11,6 +11,7 @@ const paymentsRoutes = require('./payments');
 const bundlesRoutes = require('./bundles');
 const chatRoutes = require('./chatRoutes');
 const promoCodesRoutes = require('./promoCodes');
+const referralRoutes = require('./referral');
 
 // Mount routes
 router.use('/health', healthRoutes);
@@ -21,6 +22,6 @@ router.use('/api/payments', paymentsRoutes);
 router.use('/api/bundles', bundlesRoutes);
 router.use('/api/chat', chatRoutes);
 router.use('/api/promo-codes', promoCodesRoutes);
+router.use('/api/referral', referralRoutes);
 
 module.exports = router;
-

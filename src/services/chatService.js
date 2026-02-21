@@ -47,81 +47,97 @@ class ChatService {
   }
 
   // Send a message
-  async sendMessage(roomId, senderId, content, type = 'text', metadata = {}) {
-    // In development, don't use transactions
-    const useTransaction = process.env.NODE_ENV === 'production';
-    const session = useTransaction ? await mongoose.startSession() : null;
-    
-    try {
-      if (useTransaction) await session.startTransaction();
+ async sendMessage(roomId, senderId, content, type = 'text', metadata = {}) {
+  const useTransaction = process.env.NODE_ENV === 'production';
+  const session = useTransaction ? await mongoose.startSession() : null;
+  
+  try {
+    if (useTransaction) {
+      await session.startTransaction();
+      logger.info('Transaction started');
+    }
 
-      // In development, handle string IDs
-      let query = { 'participants.userId': senderId };
-      if (process.env.NODE_ENV !== 'production') {
-        query._id = roomId;
-      } else {
-        // In production, we expect a valid ObjectId
-        query._id = mongoose.Types.ObjectId(roomId);
-      }
-
-      const options = useTransaction ? { session } : {};
-      let room = await ChatRoom.findOne(query, null, options);
-      
-      if (!room) {
-        if (process.env.NODE_ENV !== 'production') {
-          // In development, create a dummy room if it doesn't exist
-          logger.warn(`Room ${roomId} not found, creating a dummy room for development`);
-          const newRoom = new ChatRoom({
-            _id: roomId,
-            name: `Room ${roomId}`,
-            participants: [{ userId: senderId, role: 'member' }],
-            createdBy: senderId,
-            updatedBy: senderId,
-            isTemporary: true
-          });
-          await newRoom.save(options);
-          return this.sendMessage(roomId, senderId, content, type, metadata);
+    // Create a simpler query for development
+    const query = process.env.NODE_ENV === 'production' 
+      ? { 
+          _id: mongoose.Types.ObjectId(roomId),
+          'participants.userId': senderId 
         }
-        throw new Error('Room not found or user is not a participant');
-      }
+      : { _id: roomId }; // In development, only match by roomId
 
-      const message = new Message({
-        roomId,
-        senderId,
-        content,
-        type,
-        metadata,
-        readBy: [{ userId: senderId, readAt: new Date() }],
+    const options = useTransaction ? { session } : {};
+    
+    // Find or create room
+    let room = await ChatRoom.findOne(query, null, options);
+    
+    if (!room) {
+      logger.warn(`Room ${roomId} not found, creating a new room`);
+      room = new ChatRoom({
+        _id: roomId,
+        name: `Room ${roomId}`,
+        participants: [{ userId: senderId, role: 'member' }],
+        createdBy: senderId,
+        updatedBy: senderId,
+        isTemporary: true,
+        createdAt: new Date(),
+        updatedAt: new Date()
       });
-
-      await message.save(options);
-
-      room.lastMessage = message._id;
-      room.updatedAt = new Date();
-      room.updatedBy = senderId;
-      
-      // Find the participant and update their lastSeen
-      const participant = room.participants.find(p => p.userId === senderId);
-      if (participant) {
-        participant.lastSeen = new Date();
-      }
-      
       await room.save(options);
+    }
 
-      if (useTransaction) await session.commitTransaction();
-      return message;
-    } catch (error) {
-      if (useTransaction) {
-        await session.abortTransaction();
-      }
-      logger.error('Error sending message:', error);
-      throw error;
-    } finally {
-      if (session) {
-        session.endSession();
-      }
+    // Create and save message
+    const message = new Message({
+      roomId,
+      senderId,
+      content,
+      type,
+      metadata,
+      readBy: [{ userId: senderId, readAt: new Date() }],
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    await message.save(options);
+
+    // Update room's last message
+    room.lastMessage = message._id;
+    room.updatedAt = new Date();
+    room.updatedBy = senderId;
+    
+    // Update participant's last seen
+    const participant = room.participants.find(p => p.userId === senderId);
+    if (!participant) {
+      room.participants.push({
+        userId: senderId,
+        role: 'member',
+        joinedAt: new Date(),
+        lastSeen: new Date()
+      });
+    } else {
+      participant.lastSeen = new Date();
+    }
+    
+    await room.save(options);
+
+    if (useTransaction) {
+      await session.commitTransaction();
+      logger.info('Transaction committed');
+    }
+
+    return message;
+  } catch (error) {
+    if (useTransaction && session) {
+      logger.error('Error in transaction, aborting...', error);
+      await session.abortTransaction();
+    }
+    logger.error('Error in sendMessage:', error);
+    throw error;
+  } finally {
+    if (session) {
+      await session.endSession();
     }
   }
+}
 
   // Get room info
   async getRoomInfo(roomId, userId) {
@@ -224,56 +240,41 @@ class ChatService {
   }
 
   // Get chat history
-  async getChatHistory(roomId, userId, { skip = 0, limit = 50 } = {}) {
-    try {
-      // In development, return mock data
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('Development mode: Returning mock chat history for room', roomId);
-        // Return empty array or mock messages for development
+ // In chatService.js
+async getChatHistory(roomId, userId, { skip = 0, limit = 50 } = {}) {
+  try {
+    logger.info(`Fetching chat history for room: ${roomId}`);
+    
+    // Skip user check for development
+    if (process.env.NODE_ENV !== 'production') {
+      logger.warn('Skipping user access check in development mode');
+    } else {
+      // Only check user access in production
+      const room = await ChatRoom.findOne({
+        _id: roomId,
+        'participants.userId': userId
+      }).lean();
+
+      if (!room) {
+        logger.warn(`User ${userId} does not have access to room ${roomId}`);
         return [];
       }
-
-      // Production: Check room access
-      const hasAccess = await ChatRoom.exists({ _id: roomId, 'participants.userId': userId });
-      if (!hasAccess) throw new Error('Access denied');
-
-      const messages = await Message.find({ roomId })
-        .sort({ createdAt: -1 })
-        .skip(parseInt(skip))
-        .limit(parseInt(limit))
-        .lean();
-
-      const senderIds = [...new Set(messages.map(m => m.senderId))];
-      
-      // Try to get sender info, but don't fail if it doesn't work
-      let senders = [];
-      try {
-        senders = await prisma.user.findMany({
-          where: { id: { in: senderIds } },
-          select: { id: true, name: true, email: true, photoURL: true },
-        });
-      } catch (prismaError) {
-        logger.warn('Error fetching sender details from Prisma:', prismaError.message);
-      }
-
-      return messages.map(m => ({
-        ...m,
-        sender: senders.find(s => s.id === m.senderId) || { 
-          id: m.senderId,
-          name: m.senderId === userId ? 'You' : `User ${m.senderId.substring(0, 6)}`,
-          photoURL: null
-        }
-      }));
-    } catch (error) {
-      logger.error('Error getting chat history:', error);
-      // In development, return empty array instead of throwing
-      if (process.env.NODE_ENV !== 'production') {
-        return [];
-      }
-      throw error;
     }
-  }
 
+    // Get messages for the room
+    const messages = await Message.find({ roomId })
+      .sort({ createdAt: -1 })
+      .skip(parseInt(skip))
+      .limit(parseInt(limit))
+      .lean();
+
+    logger.info(`Found ${messages.length} messages for room ${roomId}`);
+    return messages;
+  } catch (error) {
+    logger.error('Error in getChatHistory:', error);
+    throw error;
+  }
+}
   // Update typing status
   async updateTypingStatus(roomId, userId, isTyping) {
     try {

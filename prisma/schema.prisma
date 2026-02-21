@@ -26,6 +26,11 @@ model User {
   withdrawals   Withdrawal[]
   age           Int?     
   bio           String?   
+  referralCode    String?           @unique
+  referredBy      String?
+  referralStats   UserReferralStats?
+  referralsMade   Referral[]        @relation("Referrer")
+  referredByUser  Referral?         @relation("ReferredUser")
 }
 
 model Wallet {
@@ -158,7 +163,7 @@ model PromoCode {
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
   usages            PromoCodeUsage[]
-  
+
   @@index([code])
   @@index([isActive, expiryTime])
 }
@@ -172,8 +177,57 @@ model PromoCodeUsage {
   bonusCoins  Int       @default(0) // Bonus coins received
   createdAt   DateTime  @default(now())
   promoCode   PromoCode @relation(fields: [promoCodeId], references: [id])
-  
+
   @@index([promoCodeId])
   @@index([userId])
   @@index([promoCodeId, userId])
+}
+
+model Referral {
+  id              String          @id @default(uuid())
+  referrerId      String
+  referredUserId  String          @unique
+  referralCode    String          @unique
+  status          String          @default("PENDING") // PENDING, COMPLETED, EXPIRED
+  bonusEarned     Int             @default(0)
+  bonusType       String?         // signup, first_call, first_gift, etc.
+  createdAt       DateTime        @default(now())
+  completedAt     DateTime?
+  referrer        User            @relation("Referrer", fields: [referrerId], references: [id])
+  referredUser    User            @relation("ReferredUser", fields: [referredUserId], references: [id])
+  rewards         ReferralReward[]
+
+  @@index([referrerId])
+  @@index([referredUserId])
+  @@index([referralCode])
+  @@index([status])
+}
+
+model ReferralReward {
+  id              String    @id @default(uuid())
+  referralId      String
+  type            String    // signup_bonus, call_bonus, gift_bonus
+  amount          Int
+  status          String    @default("PENDING") // PENDING, CREDITED, EXPIRED
+  metadata        Json?     // Additional data like callId, giftId, etc.
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  referral        Referral  @relation(fields: [referralId], references: [id])
+
+  @@index([referralId])
+  @@index([type])
+  @@index([status])
+}
+
+model UserReferralStats {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  totalReferrals    Int      @default(0)
+  activeReferrals   Int      @default(0)
+  totalEarnings     Int      @default(0)
+  availableBalance  Int      @default(0)
+  lastUpdated       DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
 }

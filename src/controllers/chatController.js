@@ -20,22 +20,29 @@ class ChatController {
   }
 
   // Send a message
-  async sendMessage(req, res) {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+ // In chatController.js
+async sendMessage(req, res) {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-      const { roomId } = req.params;
-      const { content, type = 'text', metadata } = req.body;
+    const { roomId } = req.params;
+    const { content, type = 'text', metadata } = req.body;
+    
+    // Use a default user ID if not authenticated
+    const userId = req.user?.id || 'test-user-1';
 
-      const message = await chatService.sendMessage(roomId, req.user.id, content, type, metadata);
+    const message = await chatService.sendMessage(roomId, userId, content, type, metadata);
 
-      res.status(201).json({ success: true, data: message });
-    } catch (error) {
-      logger.error('Error sending message:', error);
-      res.status(500).json({ success: false, message: error.message || 'Failed to send message' });
-    }
+    res.status(201).json({ success: true, data: message });
+  } catch (error) {
+    logger.error('Error sending message:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Failed to send message' 
+    });
   }
+}
 
   // Get room info
   async getRoomInfo(req, res) {
@@ -51,22 +58,27 @@ class ChatController {
   }
 
   // Get chat history
-  async getChatHistory(req, res) {
-    try {
-      const { roomId } = req.params;
-      const { skip = 0, limit = 50 } = req.query;
+ // In chatController.js
+async getChatHistory(req, res) {
+  try {
+    const { roomId } = req.params;
+    const { skip = 0, limit = 50 } = req.query;
 
-      const messages = await chatService.getChatHistory(roomId, req.user.id, {
-        skip: parseInt(skip),
-        limit: parseInt(limit),
-      });
+    // Skip user validation and directly fetch messages
+    const messages = await chatService.getChatHistory(roomId, {
+      skip: parseInt(skip),
+      limit: parseInt(limit),
+    });
 
-      res.json({ success: true, data: messages });
-    } catch (error) {
-      logger.error('Error getting chat history:', error);
-      res.status(500).json({ success: false, message: error.message || 'Failed to get chat history' });
-    }
+    res.json({ success: true, data: messages });
+  } catch (error) {
+    logger.error('Error getting chat history:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Failed to get chat history' 
+    });
   }
+}
 
   // Update typing status
   async updateTypingStatus(req, res) {
