@@ -229,14 +229,18 @@ id (PK) | user_id (FK) | coins | status (pending/approved/rejected) | created_at
 
 ## 8. Deployment Notes
 
-* Use **PM2** to keep Express running.
-* Reverse proxy with **Nginx** for SSL + load balancing.
+* **VPS**: `72.61.225.146` (Ubuntu 24.04)
+* **App path**: `/var/www/jalwa-video-call-app`
+* **PM2** process: `jalwa-server` on port 4000
+* **CI/CD**: Push to `deployment-prod` branch → GitHub Actions auto-deploys
 * Ensure **Postgres + Mongo + Redis** are **bound to localhost only** (not public).
 * Backups:
 
   * Postgres → `pg_dump`.
   * MongoDB → `mongodump`.
   * Redis → persistence via RDB/AOF if needed.
+
+See [Deployment Guide](./DEPLOYMENT.md) for full setup details.
 
 ---
 

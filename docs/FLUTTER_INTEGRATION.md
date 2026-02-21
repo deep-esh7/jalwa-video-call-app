@@ -20,7 +20,8 @@ This backend is now fully compatible with your Flutter app's socket event naming
 
 Future<User> authenticateUser(String firebaseToken) async {
   final response = await http.get(
-    Uri.parse('http://localhost:4000/api/users/me'),
+    // Production: http://72.61.225.146:4000  |  Local: http://localhost:4000
+    Uri.parse('http://72.61.225.146:4000/api/users/me'),
     headers: {
       'Authorization': 'Bearer $firebaseToken',
     },
@@ -65,7 +66,8 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 IO.Socket socket;
 
 void connectSocket(String userId) {
-  socket = IO.io('http://localhost:4000', <String, dynamic>{
+  // Production: http://72.61.225.146:4000  |  Local: http://localhost:4000
+  socket = IO.io('http://72.61.225.146:4000', <String, dynamic>{
     'transports': ['websocket'],
     'autoConnect': false,
   });
@@ -543,7 +545,7 @@ class VideoCallService {
 
   // 2. Setup socket listeners
   void connectSocket(String userId) {
-    socket = IO.io('http://localhost:4000', {...});
+    socket = IO.io('http://72.61.225.146:4000', {...});
     
     socket.on('connect', (_) {
       socket.emit('fe-user-available', {'userId': userId});
@@ -674,7 +676,8 @@ socket.on('be-error', (data) {
 
 ## 🚀 Backend Server
 
-- **URL**: `http://localhost:4000`
+- **URL (Production)**: `http://72.61.225.146:4000`
+- **URL (Local)**: `http://localhost:4000`
 - **Health Check**: `GET /health`
 - **Socket.io Path**: `/socket.io/`
 

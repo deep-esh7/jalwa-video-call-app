@@ -24,3 +24,4 @@ Jalwa is a video calling and chat application with a coin-based wallet system. T
 | [Flutter Integration Guide](./FLUTTER_INTEGRATION.md) | Full guide for Flutter frontend integration with socket event naming conventions (`fe-`/`be-` prefixes) |
 | [Flutter Implementation Summary](./FLUTTER_IMPLEMENTATION_SUMMARY.md) | Summary of backend refactoring changes made for Flutter frontend compatibility |
 | [Gift API Summary](./GIFT_API_SUMMARY.md) | Gift API usage guide including R2 worker configuration and endpoints |
+| [Deployment Guide](./DEPLOYMENT.md) | CI/CD setup, VPS configuration, and deployment workflow |
