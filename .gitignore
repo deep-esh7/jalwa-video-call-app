@@ -11,6 +11,9 @@ pnpm-lock.yaml
 .env.*
 !.env.example
 
+# Credentials
+docs/credentials.env
+2
 # Firebase
 firebase-service-account-key.json
 firebase-debug.log
