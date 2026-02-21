@@ -14,7 +14,7 @@ function loadEnvFile(envFile) {
 // Load environment-specific configurations
 const envLocal = { NODE_ENV: 'local', ...loadEnvFile('.env.local') };
 const envDev = { NODE_ENV: 'dev', ...loadEnvFile('.env.dev') };
-const envProd = { NODE_ENV: 'prod', ...loadEnvFile('.env.prod') };
+const envProd = { NODE_ENV: 'prod', HOST: '0.0.0.0', PORT: 4000, ...loadEnvFile('.env.prod') };
 
 module.exports = {
   apps: [{
